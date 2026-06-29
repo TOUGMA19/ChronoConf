@@ -1,0 +1,4 @@
+project_id = "xqvsbezrcrddkwztjchc"
+
+[functions.sheet-verify]
+verify_jwt = false
