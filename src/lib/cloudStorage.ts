@@ -47,8 +47,30 @@ export async function saveProject(slug: string, name: string, data: Record<strin
   if (error) throw error;
 }
 
-/** Delete a project */
+/** Delete a project and ALL related data (speakers, verify_config) */
 export async function deleteProject(slug: string): Promise<void> {
+  // 1. Supprimer les historiques de modifications des intervenants
+  const { error: editsErr } = await supabase
+    .from('speaker_edits')
+    .delete()
+    .eq('conference_id', slug);
+  if (editsErr) throw editsErr;
+
+  // 2. Supprimer les intervenants
+  const { error: speakersErr } = await supabase
+    .from('speakers')
+    .delete()
+    .eq('conference_id', slug);
+  if (speakersErr) throw speakersErr;
+
+  // 3. Supprimer la config de vérification
+  const { error: configErr } = await supabase
+    .from('verify_config')
+    .delete()
+    .eq('conference_id', slug);
+  if (configErr) throw configErr;
+
+  // 4. Supprimer les données du projet
   const { error } = await supabase
     .from('conference_data')
     .delete()
