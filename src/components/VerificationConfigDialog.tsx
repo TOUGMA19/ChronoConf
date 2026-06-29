@@ -207,7 +207,7 @@ const VerificationConfigDialog = ({ open, onOpenChange, conferenceId, onSynced }
         .not('verified_at', 'is', null);
       if (error) throw error;
       if (!speakers?.length) {
-        toast.info('Aucun intervenant n'a encore vérifié ses informations.');
+        toast.info("Aucun intervenant n'a encore vérifié ses informations.");
         setSyncing(false);
         return;
       }
