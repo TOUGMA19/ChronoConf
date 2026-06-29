@@ -9,14 +9,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { Copy, ExternalLink, RefreshCw, Upload, Loader2, CheckCircle2 } from "lucide-react";
+import { Copy, ExternalLink, RefreshCw, Upload, Loader2, CheckCircle2, RefreshCcw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { buildShareLink, cacheSettings } from "@/lib/verifyLink";
+import { getArticles, updateArticle } from "@/lib/conference";
 
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   conferenceId: string;
+  onSynced?: () => void; // appelé après synchronisation pour rafraîchir Conference
 }
 
 interface SpeakerRow {
@@ -32,7 +34,7 @@ interface SpeakerRow {
 
 const EDITABLE_FIELDS = ["nom", "prenom", "email", "institution", "titre", "resume"];
 
-const VerificationConfigDialog = ({ open, onOpenChange, conferenceId }: Props) => {
+const VerificationConfigDialog = ({ open, onOpenChange, conferenceId, onSynced }: Props) => {
   const [token, setToken] = useState("");
   const [note, setNote] = useState("");
   const [contact, setContact] = useState("");
@@ -43,6 +45,8 @@ const VerificationConfigDialog = ({ open, onOpenChange, conferenceId }: Props) =
   const [filter, setFilter] = useState("");
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncReport, setSyncReport] = useState<{ updated: number; skipped: number; notFound: number } | null>(null);
 
   useEffect(() => {
     if (!open || !conferenceId) return;
@@ -189,6 +193,105 @@ const VerificationConfigDialog = ({ open, onOpenChange, conferenceId }: Props) =
     e.target.value = "";
   };
 
+
+  // ── SYNCHRONISATION speakers → articles ──────────────────────
+  const handleSyncToArticles = async () => {
+    setSyncing(true);
+    setSyncReport(null);
+    try {
+      // 1. Charger tous les speakers vérifiés
+      const { data: speakers, error } = await supabase
+        .from('speakers')
+        .select('code,nom,prenom,titre,resume,email,institution,verified_at')
+        .eq('conference_id', conferenceId)
+        .not('verified_at', 'is', null);
+      if (error) throw error;
+      if (!speakers?.length) {
+        toast.info('Aucun intervenant n'a encore vérifié ses informations.');
+        setSyncing(false);
+        return;
+      }
+
+      // 2. Construire map code → speaker
+      const byCode = new Map(speakers.map((s) => [s.code.trim().toUpperCase(), s]));
+
+      // 3. Parcourir les articles et mettre à jour
+      const articles = getArticles();
+      let updated = 0;
+      let skipped = 0;
+      let notFound = 0;
+
+      for (const article of articles) {
+        // Cherche par code = id de l'article
+        let speaker = byCode.get(article.id.toUpperCase());
+
+        // Sinon cherche par nom dans la colonne auteurs
+        if (!speaker) {
+          speaker = speakers.find((s) => {
+            const fullName = `${s.prenom} ${s.nom}`.toLowerCase().trim();
+            const nom = s.nom.toLowerCase().trim();
+            return (
+              article.authors.toLowerCase().includes(fullName) ||
+              article.authors.toLowerCase().includes(nom)
+            );
+          });
+        }
+
+        if (!speaker) {
+          notFound++;
+          continue;
+        }
+
+        // Construire le patch — seulement les champs non vides
+        const patch: Partial<{
+          authors: string;
+          abstract: string;
+          moderator: string;
+        }> = {};
+
+        const fullName = [speaker.prenom, speaker.nom].filter(Boolean).join(' ').trim();
+        if (fullName && fullName !== article.authors) {
+          // Remplacer le nom de cet auteur dans la liste (garde les co-auteurs)
+          const authorList = article.authors.split(/[,;&]/).map((a) => a.trim());
+          const idx = authorList.findIndex((a) =>
+            a.toLowerCase().includes(speaker!.nom.toLowerCase())
+          );
+          if (idx >= 0) {
+            authorList[idx] = fullName;
+            patch.authors = authorList.join(', ');
+          } else {
+            patch.authors = fullName;
+          }
+        }
+
+        if (speaker.resume && speaker.resume !== article.abstract) {
+          patch.abstract = speaker.resume;
+        }
+
+        if (Object.keys(patch).length === 0) {
+          skipped++;
+          continue;
+        }
+
+        updateArticle(article.id, patch);
+        updated++;
+      }
+
+      setSyncReport({ updated, skipped, notFound });
+
+      if (updated > 0) {
+        toast.success(`${updated} article(s) mis à jour depuis les corrections intervenants`);
+        onSynced?.(); // rafraîchir Conference.tsx
+      } else {
+        toast.info('Aucune différence détectée entre les articles et les corrections.');
+      }
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const shareLink = token ? buildShareLink(token) : "";
   const filtered = filter.trim()
     ? speakers.filter((s) =>
@@ -331,9 +434,62 @@ const VerificationConfigDialog = ({ open, onOpenChange, conferenceId }: Props) =
               </div>
 
               {speakers.length > 0 && (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                  {verifiedCount} / {speakers.length} intervenant(s) ont vérifié leurs informations
+                <div className="space-y-3">
+                  {/* Statut vérification */}
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                    {verifiedCount} / {speakers.length} intervenant(s) ont vérifié leurs informations
+                  </div>
+
+                  {/* Bouton synchronisation */}
+                  {verifiedCount > 0 && (
+                    <div className="rounded-md border border-accent/30 bg-accent/5 p-3 space-y-2">
+                      <p className="text-xs font-medium text-foreground">
+                        {verifiedCount} intervenant(s) ont corrigé leurs informations.
+                        Synchronisez pour mettre à jour les articles du programme.
+                      </p>
+                      <Button
+                        size="sm"
+                        onClick={handleSyncToArticles}
+                        disabled={syncing}
+                        className="gap-2 gradient-accent text-accent-foreground"
+                      >
+                        {syncing
+                          ? <Loader2 className="h-4 w-4 animate-spin" />
+                          : <RefreshCcw className="h-4 w-4" />
+                        }
+                        {syncing ? "Synchronisation…" : "Synchroniser dans le programme"}
+                      </Button>
+
+                      {/* Rapport de synchronisation */}
+                      {syncReport && (
+                        <div className="text-xs space-y-0.5 pt-1 border-t border-accent/20">
+                          <p className="text-emerald-600 dark:text-emerald-400">
+                            ✓ {syncReport.updated} article(s) mis à jour
+                          </p>
+                          {syncReport.skipped > 0 && (
+                            <p className="text-muted-foreground">
+                              ↔ {syncReport.skipped} article(s) déjà à jour (aucune différence)
+                            </p>
+                          )}
+                          {syncReport.notFound > 0 && (
+                            <p className="text-orange-500">
+                              ⚠ {syncReport.notFound} article(s) sans correspondance intervenant
+                              <br />
+                              <span className="text-muted-foreground">
+                                (le code speaker ne correspond à aucun article — vérifiez que les codes ou noms concordent)
+                              </span>
+                            </p>
+                          )}
+                          {syncReport.updated > 0 && (
+                            <p className="text-muted-foreground pt-1">
+                              💾 N'oubliez pas de cliquer <strong>Sauvegarder</strong> dans l'en-tête pour persister les changements dans le cloud.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
