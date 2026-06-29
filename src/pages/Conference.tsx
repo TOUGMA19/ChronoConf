@@ -533,7 +533,7 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
       <EditArticleDialog open={!!editArticle} onOpenChange={(open) => { if (!open) setEditArticle(null); }} article={editArticle} onUpdated={() => setRefreshKey((k) => k + 1)} />
       <PresentationTypesDialog open={typesDialogOpen} onOpenChange={setTypesDialogOpen} onChanged={() => setRefreshKey((k) => k + 1)} />
       <OrganizersDialog open={organizersDialogOpen} onOpenChange={setOrganizersDialogOpen} onChanged={() => setRefreshKey((k) => k + 1)} />
-      <VerificationConfigDialog open={verifyDialogOpen} onOpenChange={setVerifyDialogOpen} conferenceId={projectSlug} />
+      <VerificationConfigDialog open={verifyDialogOpen} onOpenChange={setVerifyDialogOpen} conferenceId={projectSlug} onSynced={() => { setRefreshKey((k) => k + 1); cloudSave(true); }} />
 
       {schedule && (
         <BadgesConfigDialog
