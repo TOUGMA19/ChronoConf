@@ -124,19 +124,60 @@ const VerificationConfigDialog = ({ open, onOpenChange, conferenceId }: Props) =
     reader.onload = async (ev) => {
       const text = ev.target?.result as string;
       const lines = text.split(/\r?\n/).filter(Boolean);
-      const headers = lines[0].split(/[;,\t]/).map((h) => h.trim().toLowerCase());
+      const headers = lines[0].split(/[;,\t]/).map((h) =>
+        h.trim().toLowerCase().replace(/^"|"$/g, "").normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      );
+
       const rows = lines.slice(1).map((line) => {
-        const vals = line.split(/[;,\t]/);
-        const obj: Record<string, string> = { conference_id: conferenceId };
-        headers.forEach((h, i) => { obj[h] = (vals[i] ?? "").trim().replace(/^"|"$/g, ""); });
-        return obj;
-      }).filter((r) => r.code);
-      if (!rows.length) { toast.error("Aucune ligne valide trouvée"); return; }
+        // Handle quoted CSV fields that may contain commas
+        const vals: string[] = [];
+        let cur = "", inQuote = false;
+        for (let i = 0; i < line.length; i++) {
+          const ch = line[i];
+          if (ch === '"') { inQuote = !inQuote; continue; }
+          if ((ch === "," || ch === ";" || ch === "\t") && !inQuote) { vals.push(cur.trim()); cur = ""; continue; }
+          cur += ch;
+        }
+        vals.push(cur.trim());
+
+        const raw: Record<string, string> = {};
+        headers.forEach((h, i) => { raw[h] = (vals[i] ?? "").trim(); });
+
+        // Flexible mapping — accepte les colonnes du CSV articles ET du CSV intervenants
+        const firstAuthor = (raw.auteurs || raw.authors || raw.author || "")
+          .split(/[,;&]|( et )/i)[0]?.trim() || "";
+
+        return {
+          conference_id: conferenceId,
+          // code : accepte "code", "id", "reference", "ref", "numero"
+          code: raw.code || raw.id || raw.reference || raw.ref || raw.numero || "",
+          // nom : accepte "nom", "last_name", "lastname", première partie de "auteurs"
+          nom: raw.nom || raw.last_name || raw.lastname || raw.name || firstAuthor,
+          // prenom : accepte "prenom", "first_name", "firstname"
+          prenom: raw.prenom || raw.first_name || raw.firstname || "",
+          // email
+          email: raw.email || raw.mail || raw.courriel || "",
+          // institution
+          institution: raw.institution || raw.affiliation || raw.organisme || raw.etablissement || raw.university || "",
+          // titre : accepte "titre", "title", "intitule"
+          titre: raw.titre || raw.title || raw.intitule || "",
+          // resume : accepte "resume", "abstract", "résumé", "description"
+          resume: raw.resume || raw.abstract || raw.description || raw.résumé || raw.resumé || "",
+        };
+      }).filter((r) => r.code); // Filtre les lignes sans code
+
+      if (!rows.length) {
+        toast.error("Aucune ligne valide trouvée. Vérifiez que votre CSV contient une colonne 'code' ou 'id'.");
+        return;
+      }
+
       setImporting(true);
       try {
-        const { error } = await supabase.from("speakers").upsert(rows, { onConflict: "conference_id,code" });
+        const { error } = await supabase
+          .from("speakers")
+          .upsert(rows, { onConflict: "conference_id,code" });
         if (error) throw error;
-        toast.success(`${rows.length} intervenant(s) importé(s)`);
+        toast.success(`${rows.length} intervenant(s) importé(s) avec succès`);
         await loadSpeakers();
       } catch (err) {
         toast.error((err as Error).message);
@@ -296,10 +337,12 @@ const VerificationConfigDialog = ({ open, onOpenChange, conferenceId }: Props) =
                 </div>
               )}
 
-              <p className="text-xs text-muted-foreground">
-                Format CSV attendu (séparateur virgule ou point-virgule) :<br />
-                <code>code,nom,prenom,email,institution,titre,resume</code>
-              </p>
+              <div className="rounded-md bg-muted/40 border border-border p-3 space-y-1.5 text-xs text-muted-foreground">
+                <p className="font-medium text-foreground">Formats CSV acceptés (séparateur , ou ;) :</p>
+                <p><span className="font-medium">Format intervenants :</span><br /><code>code,nom,prenom,email,institution,titre,resume</code></p>
+                <p><span className="font-medium">Format articles (mapping auto) :</span><br /><code>id,auteurs,title,abstract,affiliation</code><br />→ code=id, nom=premier auteur, titre=title, resume=abstract</p>
+                <p className="text-yellow-600 dark:text-yellow-400">⚠️ La colonne <code>code</code> ou <code>id</code> est obligatoire.</p>
+              </div>
 
               {!speakers.length ? (
                 <p className="text-sm text-muted-foreground py-6 text-center">
