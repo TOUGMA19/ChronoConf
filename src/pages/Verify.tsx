@@ -22,7 +22,6 @@ interface VerifyConfig {
 interface Speaker {
   id: string;
   code: string;
-  conference_id?: string;
   nom: string;
   prenom: string;
   email: string;
@@ -30,7 +29,6 @@ interface Speaker {
   titre: string;
   resume: string;
   verified_at: string | null;
-  [key: string]: unknown;
 }
 
 const FIELD_LABELS: Record<string, string> = {
