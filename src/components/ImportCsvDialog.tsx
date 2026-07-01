@@ -14,6 +14,7 @@ interface ImportCsvDialogProps {
 }
 
 interface ParsedRow {
+  code: string;
   title: string;
   authors: string;
   moderator: string;
@@ -23,7 +24,6 @@ interface ParsedRow {
   duration: number;
   type: ArticleType;
   status: ArticleStatus;
-  speakerCode?: string;
   error?: string;
 }
 
@@ -38,7 +38,7 @@ function parseCSV(text: string): ParsedRow[] {
   const headers = lines[0].split(sep).map((h) => h.trim().toLowerCase().replace(/"/g, ""));
 
   const colMap = {
-    speakerCode: headers.findIndex((h) => ["code"].includes(h)),
+    code: headers.findIndex((h) => ["code", "id", "identifiant", "reference", "référence", "ref", "numero", "numéro", "num"].includes(h)),
     title: headers.findIndex((h) => ["titre", "title"].includes(h)),
     authors: headers.findIndex((h) => ["auteur", "auteurs", "authors", "author"].includes(h)),
     moderator: headers.findIndex((h) => ["modérateur", "moderateur", "moderator"].includes(h)),
@@ -57,11 +57,12 @@ function parseCSV(text: string): ParsedRow[] {
   const rows: ParsedRow[] = [];
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split(sep).map((c) => c.trim().replace(/^"|"$/g, ""));
+    const code = colMap.code >= 0 ? (cols[colMap.code] || "").trim() : "";
     const title = cols[colMap.title] || "";
     const authors = cols[colMap.authors] || "";
 
     if (!title || !authors) {
-      rows.push({ title, authors, moderator: "", sessionChair: "", abstract: "", category: "", duration: 20, type: DEFAULT_PRESENTATION_TYPES[0], status: "submitted", error: `Ligne ${i + 1}: titre ou auteur manquant` });
+      rows.push({ code, title, authors, moderator: "", sessionChair: "", abstract: "", category: "", duration: 20, type: DEFAULT_PRESENTATION_TYPES[0], status: "submitted", error: `Ligne ${i + 1}: titre ou auteur manquant` });
       continue;
     }
 
@@ -87,9 +88,9 @@ function parseCSV(text: string): ParsedRow[] {
     const finalCategory = rawCategory || "Autre";
 
     rows.push({
+      code,
       title,
       authors,
-      speakerCode: colMap.speakerCode >= 0 ? cols[colMap.speakerCode]?.trim() || undefined : undefined,
       moderator: colMap.moderator >= 0 ? cols[colMap.moderator] || "" : "",
       sessionChair: colMap.sessionChair >= 0 ? cols[colMap.sessionChair] || "" : "",
       abstract: colMap.abstract >= 0 ? cols[colMap.abstract] || "" : "",
@@ -103,10 +104,10 @@ function parseCSV(text: string): ParsedRow[] {
 }
 
 const SAMPLE_CSV = `code;titre;auteurs;modérateur;président;résumé;thématique;durée;type;statut
-P-001;Deep Learning pour la détection d'anomalies;Jean Dupont, Marie Curie;Prof. Martin;Dr. Bernard;Application du deep learning aux systèmes industriels;Intelligence Artificielle;20;présentielle;accepté
-P-002;Sécurité des réseaux IoT;Alice Martin;Dr. Leroy;Prof. Duval;Analyse des vulnérabilités IoT;Cybersécurité;25;présentielle;accepté
-P-003;Analyse de données massives;Pierre Bernard;Prof. Durand;Dr. Petit;Méthodes de traitement Big Data;Data Science;20;en ligne;soumis
-P-004;Architecture microservices;Sophie Leclerc;Dr. Petit;Prof. Martin;Patterns cloud-native;Cloud Computing;15;en ligne;accepté`;
+A001;Deep Learning pour la détection d'anomalies;Jean Dupont, Marie Curie;Prof. Martin;Dr. Bernard;Application du deep learning aux systèmes industriels;Intelligence Artificielle;20;présentielle;accepté
+A002;Sécurité des réseaux IoT;Alice Martin;Dr. Leroy;Prof. Duval;Analyse des vulnérabilités IoT;Cybersécurité;25;présentielle;accepté
+A003;Analyse de données massives;Pierre Bernard;Prof. Durand;Dr. Petit;Méthodes de traitement Big Data;Data Science;20;en ligne;soumis
+A004;Architecture microservices;Sophie Leclerc;Dr. Petit;Prof. Martin;Patterns cloud-native;Cloud Computing;15;en ligne;accepté`;
 
 const ImportCsvDialog = ({ open, onOpenChange, onImported }: ImportCsvDialogProps) => {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -153,9 +154,9 @@ const ImportCsvDialog = ({ open, onOpenChange, onImported }: ImportCsvDialogProp
 
     for (const row of validRows) {
       addArticle({
+        code: row.code ? secureTrim(row.code, 64) : undefined,
         title: secureTrim(row.title, LIMITS.title),
         authors: secureTrim(row.authors, LIMITS.authors),
-        speakerCode: row.speakerCode ? secureTrim(row.speakerCode, 20) : undefined,
         moderator: secureTrim(row.moderator, LIMITS.moderator),
         sessionChair: secureTrim(row.sessionChair, LIMITS.sessionChair),
         abstract: secureTrim(row.abstract, LIMITS.abstract),
