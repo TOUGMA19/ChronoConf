@@ -3,24 +3,14 @@ import { Upload, Download, AlertCircle, CheckCircle2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { 
-  addArticle, 
-  addCategory, 
-  addPresentationType, 
-  ArticleType, 
-  ArticleStatus, 
-  DEFAULT_PRESENTATION_TYPES,
-  setSchedule 
-} from "@/lib/conference";
+import { addArticle, getCategories, addCategory, addPresentationType, getPresentationTypes, ArticleType, ArticleStatus, DEFAULT_PRESENTATION_TYPES } from "@/lib/conference";
 import { secureTrim, validateDuration, MAX_CSV_SIZE, MAX_CSV_ROWS, LIMITS } from "@/lib/security";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 
 interface ImportCsvDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onImported: (count: number) => void;
-  projectSlug: string;           // ← IMPORTANT : à passer depuis le parent
 }
 
 interface ParsedRow {
@@ -33,6 +23,7 @@ interface ParsedRow {
   duration: number;
   type: ArticleType;
   status: ArticleStatus;
+  speakerCode?: string;
   error?: string;
 }
 
@@ -47,6 +38,7 @@ function parseCSV(text: string): ParsedRow[] {
   const headers = lines[0].split(sep).map((h) => h.trim().toLowerCase().replace(/"/g, ""));
 
   const colMap = {
+    speakerCode: headers.findIndex((h) => ["code"].includes(h)),
     title: headers.findIndex((h) => ["titre", "title"].includes(h)),
     authors: headers.findIndex((h) => ["auteur", "auteurs", "authors", "author"].includes(h)),
     moderator: headers.findIndex((h) => ["modérateur", "moderateur", "moderator"].includes(h)),
@@ -84,17 +76,20 @@ function parseCSV(text: string): ParsedRow[] {
     else if (["rejeté", "rejete"].includes(rawStatus)) status = "rejected";
     else if (["soumis"].includes(rawStatus)) status = "submitted";
 
+    // Free-form type: accept any value, migrate legacy oral/poster
     let type: ArticleType = DEFAULT_PRESENTATION_TYPES[0];
     if (rawType) {
       const mapped = LEGACY_TYPE_MAP[rawType];
       type = mapped ?? rawType;
     }
 
+    // Use the category as-is from CSV (will be auto-added on import)
     const finalCategory = rawCategory || "Autre";
 
     rows.push({
       title,
       authors,
+      speakerCode: colMap.speakerCode >= 0 ? cols[colMap.speakerCode]?.trim() || undefined : undefined,
       moderator: colMap.moderator >= 0 ? cols[colMap.moderator] || "" : "",
       sessionChair: colMap.sessionChair >= 0 ? cols[colMap.sessionChair] || "" : "",
       abstract: colMap.abstract >= 0 ? cols[colMap.abstract] || "" : "",
@@ -107,13 +102,13 @@ function parseCSV(text: string): ParsedRow[] {
   return rows;
 }
 
-const SAMPLE_CSV = `titre;auteurs;modérateur;président;résumé;thématique;durée;type;statut
-Deep Learning pour la détection d'anomalies;Jean Dupont, Marie Curie;Prof. Martin;Dr. Bernard;Application du deep learning aux systèmes industriels;Intelligence Artificielle;20;présentielle;accepté
-Sécurité des réseaux IoT;Alice Martin;Dr. Leroy;Prof. Duval;Analyse des vulnérabilités IoT;Cybersécurité;25;présentielle;accepté
-Analyse de données massives;Pierre Bernard;Prof. Durand;Dr. Petit;Méthodes de traitement Big Data;Data Science;20;en ligne;soumis
-Architecture microservices;Sophie Leclerc;Dr. Petit;Prof. Martin;Patterns cloud-native;Cloud Computing;15;en ligne;accepté`;
+const SAMPLE_CSV = `code;titre;auteurs;modérateur;président;résumé;thématique;durée;type;statut
+P-001;Deep Learning pour la détection d'anomalies;Jean Dupont, Marie Curie;Prof. Martin;Dr. Bernard;Application du deep learning aux systèmes industriels;Intelligence Artificielle;20;présentielle;accepté
+P-002;Sécurité des réseaux IoT;Alice Martin;Dr. Leroy;Prof. Duval;Analyse des vulnérabilités IoT;Cybersécurité;25;présentielle;accepté
+P-003;Analyse de données massives;Pierre Bernard;Prof. Durand;Dr. Petit;Méthodes de traitement Big Data;Data Science;20;en ligne;soumis
+P-004;Architecture microservices;Sophie Leclerc;Dr. Petit;Prof. Martin;Patterns cloud-native;Cloud Computing;15;en ligne;accepté`;
 
-const ImportCsvDialog = ({ open, onOpenChange, onImported, projectSlug }: ImportCsvDialogProps) => {
+const ImportCsvDialog = ({ open, onOpenChange, onImported }: ImportCsvDialogProps) => {
   const fileRef = useRef<HTMLInputElement>(null);
   const [parsed, setParsed] = useState<ParsedRow[]>([]);
   const [fileName, setFileName] = useState("");
@@ -147,84 +142,20 @@ const ImportCsvDialog = ({ open, onOpenChange, onImported, projectSlug }: Import
   const validRows = parsed.filter((r) => !r.error);
   const errorRows = parsed.filter((r) => r.error);
 
-  const createAutoSchedule = (articles: any[]) => {
-    const scheduleId = Date.now().toString();
-    const slots: any[] = [];
-    let currentTime = 8 * 60; // 08:00
-
-    articles.forEach((article) => {
-      const startMin = currentTime;
-      const endMin = startMin + article.duration;
-
-      const startTime = `${Math.floor(startMin / 60).toString().padStart(2, '0')}:${(startMin % 60).toString().padStart(2, '0')}`;
-      const endTime = `${Math.floor(endMin / 60).toString().padStart(2, '0')}:${(endMin % 60).toString().padStart(2, '0')}`;
-
-      slots.push({ day: 0, room: "Salle A", articleId: article.id, startTime, endTime });
-      currentTime = endMin + 10; // pause 10 min
-    });
-
-    const newSchedule = {
-      id: scheduleId,
-      name: "ULBO-js",
-      days: 1,
-      rooms: ["Salle A"],
-      startHour: 8,
-      endHour: 18,
-      lunchStart: "12:00",
-      lunchEnd: "13:30",
-      breakMinutes: 10,
-      resetChairs: true,
-      resetModerators: true,
-      createdAt: new Date().toISOString(),
-      dayHours: [{ startHour: 8, endHour: 18 }],
-      slots,
-      specialSlots: []
-    };
-
-    setSchedule(newSchedule);
-  };
-
-  const enrichArticlesWithSpeakerCodes = async (slug: string) => {
-    try {
-      const { data, error } = await supabase
-        .rpc('enrich_articles_with_speakers', { p_conference_id: slug });
-
-      if (error) throw error;
-
-      if (data && data.length > 0) {
-        // Mise à jour du JSON complet
-        const { error: updateError } = await supabase
-          .from('conference_data')
-          .update({ 
-            data: { 
-              // On garde les autres champs (schedule, categories...)
-              articles: data[0].new_articles 
-            },
-            updated_at: new Date().toISOString()
-          })
-          .eq('slug', slug);
-
-        if (updateError) throw updateError;
-      }
-    } catch (err) {
-      console.error("Enrichissement speakerCode échoué:", err);
-    }
-  };
-
-  const handleImport = async () => {
+  const handleImport = () => {
     let count = 0;
-    const insertedArticles: any[] = [];
-
+    // Auto-add all unique categories from CSV
     const newCats = [...new Set(validRows.map((r) => r.category).filter(Boolean))];
     newCats.forEach((c) => addCategory(c));
-
+    // Auto-add all unique presentation types from CSV
     const newTypes = [...new Set(validRows.map((r) => r.type).filter(Boolean))];
     newTypes.forEach((t) => addPresentationType(t));
 
     for (const row of validRows) {
-      const article = addArticle({
+      addArticle({
         title: secureTrim(row.title, LIMITS.title),
         authors: secureTrim(row.authors, LIMITS.authors),
+        speakerCode: row.speakerCode ? secureTrim(row.speakerCode, 20) : undefined,
         moderator: secureTrim(row.moderator, LIMITS.moderator),
         sessionChair: secureTrim(row.sessionChair, LIMITS.sessionChair),
         abstract: secureTrim(row.abstract, LIMITS.abstract),
@@ -233,20 +164,8 @@ const ImportCsvDialog = ({ open, onOpenChange, onImported, projectSlug }: Import
         type: row.type,
         status: row.status,
       });
-      insertedArticles.push(article);
       count++;
     }
-
-    if (insertedArticles.length > 0) {
-      createAutoSchedule(insertedArticles);
-    }
-
-    // Enrichissement speakerCode
-    if (projectSlug) {
-      await enrichArticlesWithSpeakerCodes(projectSlug);
-    }
-
-    toast.success(`${count} article(s) importé(s) avec planning et liaison intervenants`);
     setParsed([]);
     setFileName("");
     onImported(count);
@@ -276,8 +195,64 @@ const ImportCsvDialog = ({ open, onOpenChange, onImported, projectSlug }: Import
         </DialogHeader>
 
         <div className="space-y-4 px-6 py-4 overflow-y-auto flex-1 min-h-0">
-          {/* ... le reste du JSX reste identique ... */}
-          {/* (le code du dialog est trop long, je te laisse le tien d'origine pour cette partie) */}
+          <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50 border border-border">
+            <p className="text-sm text-muted-foreground">Téléchargez le modèle CSV pour connaître le format attendu</p>
+            <Button variant="outline" size="sm" onClick={handleDownloadTemplate} className="gap-1 shrink-0">
+              <Download className="h-3.5 w-3.5" />
+              Modèle
+            </Button>
+          </div>
+
+          <div
+            onClick={() => fileRef.current?.click()}
+            className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-xl p-8 cursor-pointer hover:border-primary/50 hover:bg-muted/30 transition-colors"
+          >
+            <Upload className="h-8 w-8 text-muted-foreground mb-2" />
+            <p className="text-sm font-medium text-foreground">{fileName || "Cliquez pour choisir un fichier CSV"}</p>
+            <p className="text-xs text-muted-foreground mt-1">Formats supportés : .csv (séparateur , ou ;)</p>
+            <input ref={fileRef} type="file" accept=".csv,.txt" onChange={handleFile} className="hidden" />
+          </div>
+
+          {parsed.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                {validRows.length > 0 && (
+                  <Badge variant="outline" className="bg-success/15 text-foreground border-success/30 gap-1">
+                    <CheckCircle2 className="h-3 w-3" />
+                    {validRows.length} valide{validRows.length > 1 ? "s" : ""}
+                  </Badge>
+                )}
+                {errorRows.length > 0 && (
+                  <Badge variant="outline" className="bg-destructive/15 text-destructive border-destructive/30 gap-1">
+                    <AlertCircle className="h-3 w-3" />
+                    {errorRows.length} erreur{errorRows.length > 1 ? "s" : ""}
+                  </Badge>
+                )}
+              </div>
+
+              {errorRows.length > 0 && (
+                <div className="text-xs text-destructive space-y-1 p-2 bg-destructive/5 rounded-lg">
+                  {errorRows.map((r, i) => <p key={i}>{r.error}</p>)}
+                </div>
+              )}
+
+              {validRows.length > 0 && (
+                <div className="max-h-48 overflow-y-auto border border-border rounded-lg divide-y divide-border">
+                  {validRows.map((r, i) => (
+                    <div key={i} className="px-3 py-2 text-sm flex items-center justify-between">
+                      <div className="min-w-0">
+                        <p className="font-medium text-foreground truncate">{r.title}</p>
+                        <p className="text-xs text-muted-foreground truncate">{r.authors} · {r.category} · {r.duration}min · {r.type}</p>
+                      </div>
+                      <Badge variant="outline" className="text-[10px] shrink-0 ml-2">
+                        {r.status === "accepted" ? "Accepté" : r.status === "rejected" ? "Rejeté" : "Soumis"}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-2 px-6 py-4 border-t border-border bg-background shrink-0">
