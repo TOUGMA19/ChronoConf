@@ -1,992 +1,810 @@
-// Free-form, user-configurable presentation type (e.g. "présentielle", "en ligne", ...)
-export type ArticleType = string;
-export type ArticleStatus = "submitted" | "accepted" | "rejected";
+import { useState, useMemo, useEffect, useCallback } from "react";
+import { Plus, Calendar, Trash2, Zap, FileText, Users, Clock, Upload, Download, UserCheck, X, GraduationCap, Check, AlertTriangle, BarChart3, ChevronDown, ChevronUp, Mic, Pencil, Sun, Moon, Tag, Award, ShieldCheck, LogOut, Save, Cloud } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import {
+  getArticles, getSchedule, deleteArticle, generateScheduleLocally, getLastOverflowReport,
+  clearSchedule, clearAllData, getCategories, addCategory, removeCategory, clearCategories,
+  getModerators, addModerator, addModerators, removeModerator, clearModerators,
+  getSessionChairs, addSessionChair, addSessionChairs, removeSessionChair, clearSessionChairs,
+  getPresentationTypes, getOrganizers, Article, SpecialSlot, DayHours, loadFromBlob, exportBlob,
+} from "@/lib/conference";
+import OrganizersDialog from "@/components/OrganizersDialog";
+import VerificationConfigDialog from "@/components/VerificationConfigDialog";
+import AddArticleDialog from "@/components/AddArticleDialog";
+import ScheduleGrid from "@/components/ScheduleGrid";
+import ImportCsvDialog from "@/components/ImportCsvDialog";
+import AddSpecialSlotDialog from "@/components/AddSpecialSlotDialog";
+import EditSpecialSlotDialog from "@/components/EditSpecialSlotDialog";
+import EditArticleDialog from "@/components/EditArticleDialog";
+import PresentationTypesDialog from "@/components/PresentationTypesDialog";
+import StatsDashboard from "@/components/StatsDashboard";
+import { exportSchedulePDF, exportSchedulePDFByRoom, PdfExportOptions, DEFAULT_PDF_OPTIONS } from "@/lib/exportPdf";
+import { exportScheduleDOCX } from "@/lib/exportDocx";
+import { exportBookletPDF } from "@/lib/exportBooklet";
+import { exportBadgesPDF, buildBadgesFromSchedule } from "@/lib/exportBadges";
+import { BadgesConfigDialog } from "@/components/BadgesConfigDialog";
+import CertificatesConfigDialog from "@/components/CertificatesConfigDialog";
+import { buildRecipientsFromSchedule } from "@/lib/exportCertificates";
+import { exportScheduleXLSX } from "@/lib/exportXlsx";
+import { detectConflicts, Conflict, CONFLICT_LABEL } from "@/lib/conflicts";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
+import logoImg from "@/assets/logoo.png";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { saveProject, loadProject } from "@/lib/cloudStorage";
+import { signOut } from "@/lib/auth";
 
-export const DEFAULT_PRESENTATION_TYPES: string[] = ["présentielle", "en ligne"];
+const STATUS_BADGE: Record<string, string> = {
+  submitted: "bg-warning/15 text-warning border-warning/30",
+  accepted: "bg-success/15 text-foreground border-success/30",
+  rejected: "bg-destructive/15 text-destructive border-destructive/30",
+};
+const STATUS_LABEL: Record<string, string> = {
+  submitted: "Soumis", accepted: "Accepté", rejected: "Rejeté",
+};
 
-export interface Article {
-  id: string;
-  code?: string; // Code externe (ex. numéro d'article dans le CSV) utilisé pour la synchro intervenants
-  title: string;
-  authors: string;
-  moderator: string;
-  sessionChair: string;
-  abstract: string;
-  category: string;
-  duration: number; // minutes
-  type: ArticleType;
-  status: ArticleStatus;
+function parseTimeToFractional(time: string, fallback: number): number {
+  const parts = time.split(":").map(Number);
+  if (parts.length < 2 || isNaN(parts[0]) || isNaN(parts[1])) return fallback;
+  return parts[0] + parts[1] / 60;
 }
 
-export interface Organizer {
-  name: string;
-  role: string;
+interface ConferenceProps {
+  projectSlug: string;
+  projectName: string;
+  userId: string;
+  userEmail: string;
+  onBack: () => void;
 }
 
+const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: ConferenceProps) => {
+  const [darkMode, setDarkMode] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("theme") === "dark" ||
+        (!localStorage.getItem("theme") && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    }
+    return false;
+  });
 
-export interface ScheduleSlot {
-  articleId: string;
-  room: string;
-  startTime: string; // "HH:mm"
-  endTime: string;   // "HH:mm"
-  day: number;       // day index (0-based)
-}
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", darkMode);
+    localStorage.setItem("theme", darkMode ? "dark" : "light");
+  }, [darkMode]);
 
-export type SpecialSlotType = "keynote" | "opening" | "closing" | "break" | "ceremony" | "other";
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [cloudSaving, setCloudSaving] = useState(false);
+  const [lastSaved, setLastSaved] = useState<string | null>(null);
+  const [projectLoaded, setProjectLoaded] = useState(false);
 
-export interface SpecialSlot {
-  id: string;
-  title: string;
-  speaker?: string;
-  description?: string;
-  type: SpecialSlotType;
-  room: string;        // "all" = spans all rooms
-  startTime: string;
-  endTime: string;
-  day: number;
-}
+  // Load cloud data on mount
+  useEffect(() => {
+    loadProject(projectSlug).then((blob) => {
+      if (blob && Object.keys(blob).length > 0) {
+        loadFromBlob(blob);
+        setRefreshKey((k) => k + 1);
+      }
+      setProjectLoaded(true);
+    }).catch((e) => {
+      console.error("Erreur chargement cloud:", e);
+      setProjectLoaded(true);
+    });
+  }, [projectSlug]);
 
-export interface DayHours {
-  startHour: number; // fractional, e.g. 8.5 = 08:30
-  endHour: number;
-}
+  // Auto-save to cloud every 30s when data changes
+  const cloudSave = useCallback(async (silent = false) => {
+    setCloudSaving(true);
+    try {
+      const blob = exportBlob();
+      await saveProject(projectSlug, projectName, blob);
+      setLastSaved(new Date().toLocaleTimeString("fr-FR"));
+      if (!silent) toast.success("Projet sauvegardé dans le cloud");
+    } catch (e) {
+      if (!silent) toast.error("Erreur sauvegarde : " + (e as Error).message);
+    } finally {
+      setCloudSaving(false);
+    }
+  }, [projectSlug, projectName]);
 
-export interface ConferenceSchedule {
-  id: string;
-  name: string;
-  days: number;
-  rooms: string[];
-  startHour: number; // default / fallback
-  endHour: number;
-  dayHours?: DayHours[]; // per-day overrides (index = day)
-  breakMinutes: number;
-  slots: ScheduleSlot[];
-  specialSlots: SpecialSlot[];
-  createdAt: Date;
-}
+  useEffect(() => {
+    if (!projectLoaded) return;
+    const interval = setInterval(() => cloudSave(true), 30000);
+    return () => clearInterval(interval);
+  }, [projectLoaded, cloudSave]);
 
-/** Get start/end hours for a specific day, with fallback to global values */
-export function getDayHours(schedule: ConferenceSchedule, day: number): DayHours {
-  if (schedule.dayHours && schedule.dayHours[day]) {
-    return schedule.dayHours[day];
-  }
-  return { startHour: schedule.startHour, endHour: schedule.endHour };
-}
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [moderatorsDialogOpen, setModeratorsDialogOpen] = useState(false);
+  const [categoriesDialogOpen, setCategoriesDialogOpen] = useState(false);
+  const [chairsDialogOpen, setChairsDialogOpen] = useState(false);
+  const [organizersDialogOpen, setOrganizersDialogOpen] = useState(false);
+  const [verifyDialogOpen, setVerifyDialogOpen] = useState(false);
+  const [typesDialogOpen, setTypesDialogOpen] = useState(false);
+  const [pdfOptionsOpen, setPdfOptionsOpen] = useState(false);
+  const [pdfExportTarget, setPdfExportTarget] = useState<"linear" | "byRoom" | "docx">("linear");
+  const [specialSlotOpen, setSpecialSlotOpen] = useState(false);
+  const [badgesConfigOpen, setBadgesConfigOpen] = useState(false);
+  const [certificatesOpen, setCertificatesOpen] = useState(false);
+  const [editArticle, setEditArticle] = useState<Article | null>(null);
+  const [editSpecialSlot, setEditSpecialSlot] = useState<SpecialSlot | null>(null);
+  const [pdfOptions, setPdfOptions] = useState<PdfExportOptions>(DEFAULT_PDF_OPTIONS);
+  const [customLogoDataUrl, setCustomLogoDataUrl] = useState<string | null>(null);
+  const [showStats, setShowStats] = useState(false);
+  const [newCategory, setNewCategory] = useState("");
+  const [search, setSearch] = useState("");
+  const [filterCategory, setFilterCategory] = useState("all");
+  const [selectedDay, setSelectedDay] = useState(0);
 
-// ===== Persistence with 7-day TTL =====
-const STORAGE_KEY = "chronoconf_data";
-const TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+  const [confName, setConfName] = useState(projectName);
+  const [confDays, setConfDays] = useState("2");
+  const [confRooms, setConfRooms] = useState("Salle A, Salle B, Salle C");
+  const [confStart, setConfStart] = useState("08:00");
+  const [confEnd, setConfEnd] = useState("18:00");
+  const [perDayHours, setPerDayHours] = useState<{ start: string; end: string }[]>([]);
+  const [confBreak, setConfBreak] = useState("10");
+  const [lunchStart, setLunchStart] = useState("12:00");
+  const [lunchEnd, setLunchEnd] = useState("13:30");
 
-interface PersistedData {
-  articles: Article[];
-  schedule: ConferenceSchedule | null;
-  categories: string[];
-  moderators: string[];
-  sessionChairs: string[];
-  organizers?: Organizer[];
-  presentationTypes?: string[];
-  savedAt: number;
-}
+  const numDays = parseInt(confDays) || 1;
+  const dayHoursConfig = Array.from({ length: numDays }, (_, i) => perDayHours[i] || { start: confStart, end: confEnd });
 
-function saveToStorage(): void {
-  try {
-    const data: PersistedData = {
-      articles, schedule, categories, moderators, sessionChairs, organizers, presentationTypes,
-      savedAt: Date.now(),
+  const [newModerator, setNewModerator] = useState("");
+  const [newChair, setNewChair] = useState("");
+  const [moderatorThemeMap, setModeratorThemeMap] = useState<Record<string, string[]>>({});
+  const [chairThemeMap, setChairThemeMap] = useState<Record<string, string[]>>({});
+  const [chairRoomMap, setChairRoomMap] = useState<Record<string, string[]>>({});
+  const [themeRoomMap, setThemeRoomMap] = useState<Record<string, string>>({});
+  const [resetModerators, setResetModerators] = useState(true);
+  const [resetChairs, setResetChairs] = useState(true);
+
+  const articles = useMemo(() => getArticles(), [refreshKey]);
+  const schedule = useMemo(() => getSchedule(), [refreshKey]);
+  const moderatorsList = useMemo(() => getModerators(), [refreshKey]);
+  const categoriesList = useMemo(() => getCategories(), [refreshKey]);
+  const chairsList = useMemo(() => getSessionChairs(), [refreshKey]);
+  const organizersList = useMemo(() => getOrganizers(), [refreshKey]);
+  const filtered = useMemo(() => {
+    let list = articles;
+    if (filterCategory !== "all") list = list.filter((a) => a.category === filterCategory);
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter((a) => a.title.toLowerCase().includes(q) || a.authors.toLowerCase().includes(q));
+    }
+    return list;
+  }, [articles, filterCategory, search]);
+
+  const presentationTypesList = useMemo(() => getPresentationTypes(), [refreshKey]);
+  const stats = useMemo(() => ({
+    total: articles.length,
+    accepted: articles.filter((a) => a.status === "accepted").length,
+    typeCounts: presentationTypesList.map((t) => ({
+      type: t,
+      count: articles.filter((a) => a.type === t && a.status === "accepted").length,
+    })),
+  }), [articles, presentationTypesList]);
+
+  const conflicts = useMemo(() => {
+    if (!schedule) return [];
+    return detectConflicts(schedule, articles);
+  }, [schedule, articles]);
+
+  const handleDelete = (id: string) => {
+    deleteArticle(id);
+    setRefreshKey((k) => k + 1);
+    toast.success("Article supprimé");
+  };
+
+  const handleGenerate = () => {
+    const accepted = articles.filter((a) => a.status === "accepted");
+    if (accepted.length === 0) { toast.error("Aucun article accepté à planifier"); return; }
+    const rooms = confRooms.split(",").map((r) => r.trim()).filter(Boolean);
+    if (rooms.length === 0) { toast.error("Ajoutez au moins une salle"); return; }
+    const dayHoursArray: DayHours[] = dayHoursConfig.map((dh) => ({
+      startHour: parseTimeToFractional(dh.start, 8),
+      endHour: parseTimeToFractional(dh.end, 18),
+    }));
+    generateScheduleLocally(articles, {
+      name: confName,
+      days: parseInt(confDays) || 1,
+      rooms,
+      startHour: parseTimeToFractional(confStart, 8),
+      endHour: parseTimeToFractional(confEnd, 18),
+      dayHours: dayHoursArray,
+      breakMinutes: parseInt(confBreak) || 10,
+      lunchStart, lunchEnd,
+      moderatorsList: moderatorsList.length > 0 ? moderatorsList : undefined,
+      moderatorThemeMap: Object.keys(moderatorThemeMap).length > 0 ? moderatorThemeMap : undefined,
+      resetModerators,
+      chairsList: chairsList.length > 0 ? chairsList : undefined,
+      chairThemeMap: Object.keys(chairThemeMap).length > 0 ? chairThemeMap : undefined,
+      chairRoomMap: Object.keys(chairRoomMap).length > 0 ? chairRoomMap : undefined,
+      resetChairs,
+      themeRoomMap: Object.keys(themeRoomMap).length > 0 ? themeRoomMap : undefined,
+    });
+    setSelectedDay(0);
+    setRefreshKey((k) => k + 1);
+    toast.success(`Chronogramme généré avec ${accepted.length} présentations`);
+    const overflows = getLastOverflowReport();
+    if (overflows.length > 0) {
+      overflows.forEach((o) => {
+        toast.info(
+          `Thématique "${o.theme}" : ${o.overflowCount} présentation(s) déplacée(s) hors de "${o.preferredRoom}" (vers ${o.overflowRooms.join(", ")}) faute de place.`,
+          { duration: 7000 }
+        );
+      });
+    }
+  };
+
+  const handleClear = () => { clearSchedule(); setRefreshKey((k) => k + 1); toast.success("Chronogramme effacé"); };
+  const handleClearAll = () => {
+    if (!window.confirm("Effacer toutes les données de ce projet ? Action irréversible.")) return;
+    clearAllData(); setRefreshKey((k) => k + 1); toast.success("Données effacées");
+  };
+  const handleAddModerator = () => { if (!newModerator.trim()) return; addModerator(newModerator); setNewModerator(""); setRefreshKey((k) => k + 1); };
+  const handleImportModerators = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const lines = text.split(/[\r\n]+/).map((l) => l.trim()).filter(Boolean);
+      const start = /^(nom|name|modérateur|moderator)/i.test(lines[0]) ? 1 : 0;
+      const names = lines.slice(start).map((l) => l.split(/[;,\t]/)[0].trim().replace(/^["']|["']$/g, "")).filter(Boolean);
+      const count = addModerators(names);
+      setRefreshKey((k) => k + 1);
+      toast.success(`${count} modérateur${count > 1 ? "s" : ""} importé${count > 1 ? "s" : ""}`);
     };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch { /* quota exceeded — silent fail */ }
-}
-
-function loadFromStorage(): void {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
-    // Guard against excessively large payloads (max 10MB)
-    if (raw.length > 10 * 1024 * 1024) {
-      localStorage.removeItem(STORAGE_KEY);
-      return;
-    }
-    const data: PersistedData = JSON.parse(raw);
-    if (typeof data.savedAt !== "number" || Date.now() - data.savedAt > TTL_MS) {
-      localStorage.removeItem(STORAGE_KEY);
-      return;
-    }
-    // Validate structure
-    if (!Array.isArray(data.articles) || (!data.schedule && data.schedule !== null)) {
-      localStorage.removeItem(STORAGE_KEY);
-      return;
-    }
-    articles = data.articles || [];
-    schedule = data.schedule || null;
-    categories = Array.isArray(data.categories) ? data.categories : [];
-    moderators = Array.isArray(data.moderators) ? data.moderators : [];
-    sessionChairs = Array.isArray(data.sessionChairs) ? data.sessionChairs : [];
-    organizers = Array.isArray(data.organizers)
-      ? data.organizers.filter((o: any) => o && typeof o.name === "string").map((o: any) => ({ name: String(o.name), role: String(o.role || "") }))
-      : [];
-    presentationTypes = Array.isArray(data.presentationTypes) && data.presentationTypes.length > 0
-      ? data.presentationTypes
-      : [...DEFAULT_PRESENTATION_TYPES];
-
-    // Migrate legacy "oral" / "poster" values to the new defaults
-    const TYPE_MIGRATION: Record<string, string> = {
-      oral: "présentielle",
-      poster: "en ligne",
+    reader.readAsText(file); e.target.value = "";
+  };
+  const handleRemoveModerator = (name: string) => { removeModerator(name); setRefreshKey((k) => k + 1); };
+  const handleClearModerators = () => { clearModerators(); setRefreshKey((k) => k + 1); toast.success("Modérateurs vidés"); };
+  const handleAddChair = () => { if (!newChair.trim()) return; addSessionChair(newChair); setNewChair(""); setRefreshKey((k) => k + 1); };
+  const handleImportChairs = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const lines = text.split(/[\r\n]+/).map((l) => l.trim()).filter(Boolean);
+      const start = /^(nom|name|président|president|chair)/i.test(lines[0]) ? 1 : 0;
+      const names = lines.slice(start).map((l) => l.split(/[;,\t]/)[0].trim().replace(/^["']|["']$/g, "")).filter(Boolean);
+      const count = addSessionChairs(names);
+      setRefreshKey((k) => k + 1);
+      toast.success(`${count} président${count > 1 ? "s" : ""} importé${count > 1 ? "s" : ""}`);
     };
-    let migrated = false;
-    articles = articles.map((a) => {
-      const mapped = TYPE_MIGRATION[a.type];
-      if (mapped) { migrated = true; return { ...a, type: mapped }; }
-      return a;
-    });
-    // Ensure every article's type exists in the configurable list
-    const knownTypes = new Set(presentationTypes);
-    articles.forEach((a) => {
-      if (a.type && !knownTypes.has(a.type)) {
-        presentationTypes = [...presentationTypes, a.type];
-        knownTypes.add(a.type);
-        migrated = true;
-      }
-    });
-    if (migrated) saveToStorage();
-  } catch {
-    localStorage.removeItem(STORAGE_KEY);
-  }
-}
-
-// Dynamic categories managed by the user
-let categories: string[] = [];
-let articles: Article[] = [];
-let schedule: ConferenceSchedule | null = null;
-let moderators: string[] = [];
-let sessionChairs: string[] = [];
-let organizers: Organizer[] = [];
-let presentationTypes: string[] = [...DEFAULT_PRESENTATION_TYPES];
-
-// ===== Presentation types CRUD =====
-export function getPresentationTypes(): string[] {
-  return [...presentationTypes];
-}
-
-export function setPresentationTypes(types: string[]): void {
-  const cleaned = Array.from(new Set(types.map((t) => t.trim()).filter(Boolean)));
-  presentationTypes = cleaned.length > 0 ? cleaned : [...DEFAULT_PRESENTATION_TYPES];
-  saveToStorage();
-}
-
-export function addPresentationType(name: string): boolean {
-  const trimmed = name.trim();
-  if (trimmed && !presentationTypes.includes(trimmed)) {
-    presentationTypes = [...presentationTypes, trimmed];
-    saveToStorage();
-    return true;
-  }
-  return false;
-}
-
-export function removePresentationType(name: string): void {
-  // Don't allow removing if it would leave the list empty
-  const next = presentationTypes.filter((t) => t !== name);
-  if (next.length === 0) return;
-  presentationTypes = next;
-  saveToStorage();
-}
-
-export function renamePresentationType(oldName: string, newName: string): boolean {
-  const trimmed = newName.trim();
-  if (!trimmed || oldName === trimmed) return false;
-  if (presentationTypes.includes(trimmed)) return false;
-  presentationTypes = presentationTypes.map((t) => (t === oldName ? trimmed : t));
-  // Cascade rename on articles
-  articles = articles.map((a) => (a.type === oldName ? { ...a, type: trimmed } : a));
-  saveToStorage();
-  return true;
-}
-
-export interface ThemeOverflow {
-  theme: string;
-  preferredRoom: string;
-  overflowRooms: string[];
-  overflowCount: number;
-}
-let lastOverflowReport: ThemeOverflow[] = [];
-export function getLastOverflowReport(): ThemeOverflow[] {
-  return [...lastOverflowReport];
-}
-
-// Load persisted data on module init
-loadFromStorage();
-
-export function getCategories(): string[] {
-  return [...categories];
-}
-
-export function addCategory(name: string): boolean {
-  const trimmed = name.trim();
-  if (trimmed && !categories.includes(trimmed)) {
-    categories = [...categories, trimmed];
-    saveToStorage();
-    return true;
-  }
-  return false;
-}
-
-export function addCategories(names: string[]): number {
-  let count = 0;
-  names.forEach((n) => {
-    const trimmed = n.trim();
-    if (trimmed && !categories.includes(trimmed)) {
-      categories = [...categories, trimmed];
-      count++;
-    }
-  });
-  if (count > 0) saveToStorage();
-  return count;
-}
-
-export function removeCategory(name: string): void {
-  categories = categories.filter((c) => c !== name);
-  saveToStorage();
-}
-
-export function clearCategories(): void {
-  categories = [];
-  saveToStorage();
-}
-
-export function getModerators(): string[] {
-  return [...moderators];
-}
-
-export function addModerator(name: string): void {
-  const trimmed = name.trim();
-  if (trimmed && !moderators.includes(trimmed)) {
-    moderators = [...moderators, trimmed];
-    saveToStorage();
-  }
-}
-
-export function addModerators(names: string[]): number {
-  let count = 0;
-  names.forEach((n) => {
-    const trimmed = n.trim();
-    if (trimmed && !moderators.includes(trimmed)) {
-      moderators = [...moderators, trimmed];
-      count++;
-    }
-  });
-  if (count > 0) saveToStorage();
-  return count;
-}
-
-export function removeModerator(name: string): void {
-  moderators = moderators.filter((m) => m !== name);
-  saveToStorage();
-}
-
-export function clearModerators(): void {
-  moderators = [];
-  saveToStorage();
-}
-
-// Session Chairs management
-export function getSessionChairs(): string[] {
-  return [...sessionChairs];
-}
-
-export function addSessionChair(name: string): void {
-  const trimmed = name.trim();
-  if (trimmed && !sessionChairs.includes(trimmed)) {
-    sessionChairs = [...sessionChairs, trimmed];
-    saveToStorage();
-  }
-}
-
-export function addSessionChairs(names: string[]): number {
-  let count = 0;
-  names.forEach((n) => {
-    const trimmed = n.trim();
-    if (trimmed && !sessionChairs.includes(trimmed)) {
-      sessionChairs = [...sessionChairs, trimmed];
-      count++;
-    }
-  });
-  if (count > 0) saveToStorage();
-  return count;
-}
-
-export function removeSessionChair(name: string): void {
-  sessionChairs = sessionChairs.filter((c) => c !== name);
-  saveToStorage();
-}
-
-export function clearSessionChairs(): void {
-  sessionChairs = [];
-  saveToStorage();
-}
-
-// ===== Organizers (with roles) =====
-export function getOrganizers(): Organizer[] {
-  return organizers.map((o) => ({ ...o }));
-}
-
-export function addOrganizer(name: string, role: string): boolean {
-  const n = name.trim();
-  const r = role.trim();
-  if (!n) return false;
-  if (organizers.some((o) => o.name.toLowerCase() === n.toLowerCase())) return false;
-  organizers = [...organizers, { name: n, role: r }];
-  saveToStorage();
-  return true;
-}
-
-export function addOrganizers(entries: Organizer[]): number {
-  let count = 0;
-  entries.forEach((e) => {
-    const n = (e.name || "").trim();
-    const r = (e.role || "").trim();
-    if (!n) return;
-    if (organizers.some((o) => o.name.toLowerCase() === n.toLowerCase())) return;
-    organizers = [...organizers, { name: n, role: r }];
-    count++;
-  });
-  if (count > 0) saveToStorage();
-  return count;
-}
-
-export function removeOrganizer(name: string): void {
-  organizers = organizers.filter((o) => o.name !== name);
-  saveToStorage();
-}
-
-export function clearOrganizers(): void {
-  organizers = [];
-  saveToStorage();
-}
-
-
-export function getArticles(): Article[] {
-  return [...articles];
-}
-
-export function addArticle(a: Omit<Article, "id">): Article {
-  if (a.category && !categories.includes(a.category)) {
-    categories = [...categories, a.category];
-  }
-  if (a.type && !presentationTypes.includes(a.type)) {
-    presentationTypes = [...presentationTypes, a.type];
-  }
-  const newA: Article = { ...a, id: Date.now().toString() + Math.random().toString(36).slice(2, 6) };
-  articles = [newA, ...articles];
-  saveToStorage();
-  return newA;
-}
-
-export function deleteArticle(id: string): void {
-  articles = articles.filter((a) => a.id !== id);
-  saveToStorage();
-}
-
-export function updateArticle(id: string, data: Partial<Article>): void {
-  if (data.type && !presentationTypes.includes(data.type)) {
-    presentationTypes = [...presentationTypes, data.type];
-  }
-  articles = articles.map((a) => (a.id === id ? { ...a, ...data } : a));
-  saveToStorage();
-}
-
-export function getSchedule(): ConferenceSchedule | null {
-  return schedule;
-}
-
-export function setSchedule(s: ConferenceSchedule): void {
-  schedule = s;
-  saveToStorage();
-}
-
-export function clearSchedule(): void {
-  schedule = null;
-  saveToStorage();
-}
-
-export function clearAllData(): void {
-  articles = [];
-  schedule = null;
-  categories = [];
-  moderators = [];
-  sessionChairs = [];
-  presentationTypes = [...DEFAULT_PRESENTATION_TYPES];
-  localStorage.removeItem(STORAGE_KEY);
-}
-
-// ===== Special Slots =====
-export function addSpecialSlot(slot: Omit<SpecialSlot, "id">): SpecialSlot {
-  if (!schedule) return { ...slot, id: "" };
-  const newSlot: SpecialSlot = { ...slot, id: "sp_" + Date.now().toString() + Math.random().toString(36).slice(2, 5) };
-  schedule = { ...schedule, specialSlots: [...(schedule.specialSlots || []), newSlot] };
-  saveToStorage();
-  return newSlot;
-}
-
-export function removeSpecialSlot(id: string): void {
-  if (!schedule) return;
-  schedule = { ...schedule, specialSlots: (schedule.specialSlots || []).filter((s) => s.id !== id) };
-  saveToStorage();
-}
-
-export function updateSpecialSlot(id: string, data: Partial<Omit<SpecialSlot, "id">>): void {
-  if (!schedule) return;
-  schedule = {
-    ...schedule,
-    specialSlots: (schedule.specialSlots || []).map((s) =>
-      s.id === id ? { ...s, ...data } : s
-    ),
+    reader.readAsText(file); e.target.value = "";
   };
-  saveToStorage();
-}
+  const handleRemoveChair = (name: string) => { removeSessionChair(name); setRefreshKey((k) => k + 1); };
+  const handleClearChairs = () => { clearSessionChairs(); setRefreshKey((k) => k + 1); toast.success("Présidents vidés"); };
 
-export function getSpecialSlots(): SpecialSlot[] {
-  return schedule?.specialSlots || [];
-}
-
-function parseMinutes(t: string): number {
-  const [h, m] = t.split(":").map(Number);
-  return h * 60 + (m || 0);
-}
-
-export interface MoveResult {
-  success: boolean;
-  message: string;
-  adjustedTime?: string;
-}
-
-/**
- * Move a slot to a new room/time, respecting break time and avoiding overlaps.
- * Returns a result indicating success or failure with a message.
- */
-export function moveSlot(articleId: string, newRoom: string, newStartTime: string, day?: number): MoveResult {
-  if (!schedule) return { success: false, message: "Aucun chronogramme" };
-
-  const slot = schedule.slots.find((s) => s.articleId === articleId);
-  if (!slot) return { success: false, message: "Créneau introuvable" };
-
-  const duration = parseMinutes(slot.endTime) - parseMinutes(slot.startTime);
-  const breakMin = schedule.breakMinutes || 0;
-  const targetDay = day ?? slot.day;
-  let startMin = parseMinutes(newStartTime);
-  let endMin = startMin + duration;
-
-  // Clamp to schedule bounds (per-day)
-  const dh = getDayHours(schedule, targetDay);
-  const dayStartMin = dh.startHour * 60;
-  const dayEndMin = dh.endHour * 60;
-  if (startMin < dayStartMin) startMin = dayStartMin;
-  if (endMin > dayEndMin) {
-    startMin = dayEndMin - duration;
-    if (startMin < dayStartMin) return { success: false, message: "Pas assez de place dans cette journée" };
-  }
-  endMin = startMin + duration;
-
-  // Get other slots in the same room & day
-  const otherSlots = schedule.slots
-    .filter((s) => s.articleId !== articleId && s.room === newRoom && s.day === targetDay)
-    .map((s) => ({ start: parseMinutes(s.startTime), end: parseMinutes(s.endTime), id: s.articleId }))
-    .sort((a, b) => a.start - b.start);
-
-  // Check for overlap (including break time)
-  const hasConflict = otherSlots.some((o) => {
-    const oStartWithBreak = o.start - breakMin;
-    const oEndWithBreak = o.end + breakMin;
-    return startMin < oEndWithBreak && endMin > oStartWithBreak;
-  });
-
-  if (hasConflict) {
-    // Try to find nearest valid position (snap to closest gap)
-    let bestStart = -1;
-    let bestDist = Infinity;
-
-    // Try before each slot
-    for (const o of otherSlots) {
-      const candidateEnd = o.start - breakMin;
-      const candidateStart = candidateEnd - duration;
-      if (candidateStart >= dayStartMin) {
-        const conflictsOther = otherSlots.some((ox) => ox !== o && candidateStart < ox.end + breakMin && candidateEnd > ox.start - breakMin);
-        if (!conflictsOther) {
-          const dist = Math.abs(candidateStart - parseMinutes(newStartTime));
-          if (dist < bestDist) { bestDist = dist; bestStart = candidateStart; }
-        }
-      }
-    }
-
-    // Try after each slot
-    for (const o of otherSlots) {
-      const candidateStart = o.end + breakMin;
-      const candidateEnd = candidateStart + duration;
-      if (candidateEnd <= dayEndMin) {
-        const conflictsOther = otherSlots.some((ox) => ox !== o && candidateStart < ox.end + breakMin && candidateEnd > ox.start - breakMin);
-        if (!conflictsOther) {
-          const dist = Math.abs(candidateStart - parseMinutes(newStartTime));
-          if (dist < bestDist) { bestDist = dist; bestStart = candidateStart; }
-        }
-      }
-    }
-
-    if (bestStart >= 0) {
-      startMin = bestStart;
-      endMin = startMin + duration;
-    } else {
-      return { success: false, message: `Pas de place disponible dans ${newRoom} en respectant l'écart de ${breakMin} min` };
-    }
+  if (!projectLoaded) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="animate-pulse text-muted-foreground font-display">Chargement du projet…</div>
+      </div>
+    );
   }
 
-  const finalStart = fmt(startMin);
-  const finalEnd = fmt(endMin);
+  return (
+    <div className="min-h-screen bg-background">
+      <header className="sticky top-0 z-50 border-b border-border bg-card/95 backdrop-blur-md shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <img src={logoImg} alt="Logo" className="h-14 w-14 object-contain" />
+            <div>
+              <h1 className="text-xl font-display font-bold text-foreground">
+                <span className="text-accent">Chrono</span>Conf
+              </h1>
+              <p className="text-sm text-muted-foreground">{projectName} · <span className="text-xs">{userEmail}</span></p>
+            </div>
+          </div>
+          <div className="flex gap-2 items-center flex-wrap justify-end">
+            <Button variant="ghost" size="icon" onClick={() => setDarkMode(!darkMode)} className="rounded-full" title={darkMode ? "Mode clair" : "Mode sombre"}>
+              {darkMode ? <Sun className="h-5 w-5 text-warning" /> : <Moon className="h-5 w-5 text-muted-foreground" />}
+            </Button>
+            {/* Cloud save */}
+            <Button variant="outline" onClick={() => cloudSave(false)} disabled={cloudSaving} className="gap-2" title="Sauvegarder maintenant">
+              {cloudSaving ? <Cloud className="h-4 w-4 animate-pulse" /> : <Save className="h-4 w-4" />}
+              <span className="hidden sm:inline">{cloudSaving ? "Sauvegarde…" : lastSaved ? `Sauvé ${lastSaved}` : "Sauvegarder"}</span>
+            </Button>
+            <Button variant="outline" onClick={() => setCategoriesDialogOpen(true)} className="gap-2">
+              <FileText className="h-4 w-4" /><span className="hidden sm:inline">Thématiques ({categoriesList.length})</span>
+            </Button>
+            <Button variant="outline" onClick={() => setModeratorsDialogOpen(true)} className="gap-2">
+              <UserCheck className="h-4 w-4" /><span className="hidden sm:inline">Modérateurs ({moderatorsList.length})</span>
+            </Button>
+            <Button variant="outline" onClick={() => setChairsDialogOpen(true)} className="gap-2">
+              <GraduationCap className="h-4 w-4" /><span className="hidden sm:inline">Présidents ({chairsList.length})</span>
+            </Button>
+            <Button variant="outline" onClick={() => setOrganizersDialogOpen(true)} className="gap-2">
+              <Users className="h-4 w-4" /><span className="hidden sm:inline">Organisateurs ({organizersList.length})</span>
+            </Button>
+            <Button variant="outline" onClick={() => setVerifyDialogOpen(true)} className="gap-2">
+              <ShieldCheck className="h-4 w-4" /><span className="hidden sm:inline">Vérification</span>
+            </Button>
+            <Button variant="outline" onClick={() => setTypesDialogOpen(true)} className="gap-2">
+              <Tag className="h-4 w-4" /><span className="hidden sm:inline">Types ({presentationTypesList.length})</span>
+            </Button>
+            <Button variant="outline" onClick={() => setImportOpen(true)} className="gap-2">
+              <Upload className="h-4 w-4" /><span className="hidden sm:inline">Importer CSV</span>
+            </Button>
+            <Button onClick={() => setDialogOpen(true)} className="gradient-accent text-accent-foreground gap-2">
+              <Plus className="h-4 w-4" /><span className="hidden sm:inline">Soumettre un article</span>
+            </Button>
+            <Button variant="ghost" size="icon" onClick={onBack} title="Changer de projet" className="rounded-full">
+              <LogOut className="h-4 w-4 rotate-180" />
+            </Button>
+          </div>
+        </div>
+      </header>
 
-  schedule = {
-    ...schedule,
-    slots: schedule.slots.map((s) => {
-      if (s.articleId !== articleId) return s;
-      return { ...s, room: newRoom, startTime: finalStart, endTime: finalEnd, day: targetDay };
-    }),
-  };
-  saveToStorage();
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+        {/* Stats */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {[
+            { icon: FileText, label: "Total soumis", value: stats.total, color: "text-primary" },
+            { icon: Users, label: "Acceptés", value: stats.accepted, color: "text-foreground" },
+            ...stats.typeCounts.slice(0, 2).map((tc, i) => ({
+              icon: i === 0 ? Calendar : Clock,
+              label: tc.type.charAt(0).toUpperCase() + tc.type.slice(1),
+              value: tc.count,
+              color: i === 0 ? "text-accent" : "text-muted-foreground",
+            })),
+          ].map(({ icon: Icon, label, value, color }) => (
+            <div key={label} className="bg-card border border-border rounded-xl p-4 shadow-card">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center">
+                  <Icon className={`h-5 w-5 ${color}`} />
+                </div>
+                <div>
+                  <p className="text-2xl font-display font-bold text-foreground">{value}</p>
+                  <p className="text-xs text-muted-foreground">{label}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
 
-  const adjusted = fmt(startMin) !== newStartTime;
-  return {
-    success: true,
-    message: adjusted
-      ? `Déplacé à ${finalStart} (ajusté pour respecter l'écart de ${breakMin} min)`
-      : `Déplacé à ${finalStart} dans ${newRoom}`,
-    adjustedTime: finalStart,
-  };
-}
+        {articles.length > 0 && (
+          <Button variant="outline" onClick={() => setShowStats((v) => !v)} className="gap-2 w-full sm:w-auto">
+            <BarChart3 className="h-4 w-4" />
+            {showStats ? "Masquer les statistiques" : "Afficher les statistiques détaillées"}
+            {showStats ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </Button>
+        )}
 
-/** Swap two slots: exchange their room, startTime and endTime */
-export function swapSlots(articleIdA: string, articleIdB: string): void {
-  if (!schedule) return;
-  const slotA = schedule.slots.find((s) => s.articleId === articleIdA);
-  const slotB = schedule.slots.find((s) => s.articleId === articleIdB);
-  if (!slotA || !slotB) return;
+        {showStats && <StatsDashboard articles={articles} schedule={schedule} />}
 
-  schedule = {
-    ...schedule,
-    slots: schedule.slots.map((s) => {
-      if (s.articleId === articleIdA) {
-        return { ...s, room: slotB.room, startTime: slotB.startTime, endTime: slotB.endTime, day: slotB.day };
-      }
-      if (s.articleId === articleIdB) {
-        return { ...s, room: slotA.room, startTime: slotA.startTime, endTime: slotA.endTime, day: slotA.day };
-      }
-      return s;
-    }),
-  };
-  saveToStorage();
-}
+        {conflicts.length > 0 && (() => {
+          const errors = conflicts.filter((c) => c.severity === "error");
+          const warnings = conflicts.filter((c) => c.severity === "warning");
+          const infos = conflicts.filter((c) => c.severity === "info");
+          const headerColor = errors.length > 0 ? "destructive" : warnings.length > 0 ? "warning" : "primary";
+          return (
+            <div className={cn("rounded-xl p-4 space-y-3 border",
+              headerColor === "destructive" && "bg-destructive/5 border-destructive/20",
+              headerColor === "warning" && "bg-warning/5 border-warning/20",
+              headerColor === "primary" && "bg-primary/5 border-primary/20")}>
+              <h3 className={cn("font-display font-semibold flex items-center gap-2 flex-wrap",
+                headerColor === "destructive" && "text-destructive",
+                headerColor === "warning" && "text-warning",
+                headerColor === "primary" && "text-primary")}>
+                <AlertTriangle className="h-5 w-5" />
+                Analyse du programme
+                {errors.length > 0 && <Badge variant="outline" className="border-destructive/50 text-destructive text-xs">{errors.length} erreur{errors.length > 1 ? "s" : ""}</Badge>}
+                {warnings.length > 0 && <Badge variant="outline" className="border-warning/50 text-warning text-xs">{warnings.length} avertissement{warnings.length > 1 ? "s" : ""}</Badge>}
+                {infos.length > 0 && <Badge variant="outline" className="border-primary/50 text-primary text-xs">{infos.length} info{infos.length > 1 ? "s" : ""}</Badge>}
+              </h3>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {[...errors, ...warnings, ...infos].map((c, i) => (
+                  <div key={i} className="flex items-start gap-2 text-sm">
+                    <Badge variant="outline" className={cn("shrink-0 text-[10px]",
+                      c.severity === "error" && "border-destructive/50 text-destructive",
+                      c.severity === "warning" && "border-warning/50 text-warning",
+                      c.severity === "info" && "border-primary/50 text-primary")}>
+                      {CONFLICT_LABEL[c.type]}
+                    </Badge>
+                    <p className="text-foreground/80">{c.message}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
-/** Get a snapshot of current slots for undo */
-export function getSlotSnapshot(): ScheduleSlot[] {
-  return schedule ? [...schedule.slots.map((s) => ({ ...s }))] : [];
-}
+        <div className="bg-card border border-border rounded-xl shadow-card">
+          <div className="p-4 border-b border-border flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+            <h2 className="font-display font-semibold text-foreground">Articles soumis</h2>
+            <div className="flex gap-2 w-full sm:w-auto">
+              <Input placeholder="Rechercher..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full sm:w-48" />
+              <Select value={filterCategory} onValueChange={setFilterCategory}>
+                <SelectTrigger className="w-40"><SelectValue placeholder="Catégorie" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Toutes</SelectItem>
+                  {categoriesList.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          {filtered.length === 0 ? (
+            <div className="p-12 text-center text-muted-foreground">
+              <FileText className="h-10 w-10 mx-auto mb-3 opacity-40" />
+              <p>Aucun article soumis</p>
+              <p className="text-xs mt-1">Commencez par ajouter des articles</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-border">
+              {filtered.map((a) => (
+                <ArticleRow key={a.id} article={a} onDelete={handleDelete} onEdit={(a) => setEditArticle(a)} />
+              ))}
+            </div>
+          )}
+        </div>
 
-/** Restore slots from a snapshot */
-export function restoreSlotSnapshot(snapshot: ScheduleSlot[]): void {
-  if (!schedule) return;
-  schedule = { ...schedule, slots: snapshot };
-  saveToStorage();
-}
+        <div className="bg-card border border-border rounded-xl shadow-card p-6 space-y-4">
+          <h2 className="font-display font-semibold text-foreground flex items-center gap-2">
+            <Zap className="h-5 w-5 text-accent" />Générer le chronogramme
+          </h2>
+          {moderatorsList.length > 0 && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <UserCheck className="h-4 w-4" />
+              {moderatorsList.length} modérateur{moderatorsList.length > 1 ? "s" : ""} seront assignés automatiquement
+            </div>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="space-y-2"><Label>Nom de la conférence</Label><Input value={confName} onChange={(e) => setConfName(e.target.value)} /></div>
+            <div className="space-y-2"><Label>Nombre de jours</Label><Input type="number" min="1" max="7" value={confDays} onChange={(e) => setConfDays(e.target.value)} /></div>
+            <div className="space-y-2"><Label>Salles (séparées par des virgules)</Label><Input value={confRooms} onChange={(e) => setConfRooms(e.target.value)} placeholder="Salle A, Salle B" /></div>
+            <div className="space-y-2"><Label>Heure de début (par défaut)</Label><Input type="time" value={confStart} onChange={(e) => setConfStart(e.target.value)} /></div>
+            <div className="space-y-2"><Label>Heure de fin (par défaut)</Label><Input type="time" value={confEnd} onChange={(e) => setConfEnd(e.target.value)} /></div>
+            <div className="space-y-2"><Label>Pause entre communications (min)</Label><Input type="number" min="0" max="60" value={confBreak} onChange={(e) => setConfBreak(e.target.value)} /></div>
+            <div className="space-y-2"><Label>Début pause déjeuner</Label><Input type="time" value={lunchStart} onChange={(e) => setLunchStart(e.target.value)} /></div>
+            <div className="space-y-2"><Label>Fin pause déjeuner</Label><Input type="time" value={lunchEnd} onChange={(e) => setLunchEnd(e.target.value)} /></div>
+          </div>
+          {numDays > 1 && (
+            <div className="space-y-3">
+              <Label className="text-sm font-semibold">Horaires par jour <span className="text-muted-foreground font-normal">(laisser vide = horaires par défaut)</span></Label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {Array.from({ length: numDays }, (_, i) => {
+                  const dh = perDayHours[i];
+                  return (
+                    <div key={i} className="flex items-center gap-2 p-3 rounded-lg bg-muted/50 border border-border">
+                      <span className="text-sm font-medium text-foreground whitespace-nowrap">Jour {i + 1}</span>
+                      <Input type="time" value={dh?.start || ""} placeholder={confStart} onChange={(e) => { const u = [...perDayHours]; u[i] = { start: e.target.value, end: u[i]?.end || "" }; setPerDayHours(u); }} className="w-28" />
+                      <span className="text-muted-foreground">→</span>
+                      <Input type="time" value={dh?.end || ""} placeholder={confEnd} onChange={(e) => { const u = [...perDayHours]; u[i] = { start: u[i]?.start || "", end: e.target.value }; setPerDayHours(u); }} className="w-28" />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <Checkbox id="resetModerators" checked={resetModerators} onCheckedChange={(c) => setResetModerators(c === true)} />
+            <Label htmlFor="resetModerators" className="text-sm cursor-pointer">Réinitialiser les modérateurs existants lors de la génération</Label>
+          </div>
+          <div className="flex items-center gap-2">
+            <Checkbox id="resetChairs" checked={resetChairs} onCheckedChange={(c) => setResetChairs(c === true)} />
+            <Label htmlFor="resetChairs" className="text-sm cursor-pointer">Réinitialiser les présidents de séance existants lors de la génération</Label>
+          </div>
+          <div className="flex flex-col sm:flex-row flex-wrap gap-2 pt-2">
+            <Button onClick={handleGenerate} className="gradient-accent text-accent-foreground gap-2 w-full sm:w-auto justify-center"><Zap className="h-4 w-4" />Générer le chronogramme</Button>
+            {schedule && <Button variant="outline" onClick={handleClear} className="w-full sm:w-auto justify-center">Effacer le chronogramme</Button>}
+            <Button variant="destructive" onClick={handleClearAll} className="gap-2 w-full sm:w-auto justify-center"><Trash2 className="h-4 w-4" />Tout effacer</Button>
+          </div>
+        </div>
 
-// Helper: format minutes to "HH:mm"
-function fmt(minutes: number): string {
-  return `${Math.floor(minutes / 60).toString().padStart(2, "0")}:${(minutes % 60).toString().padStart(2, "0")}`;
-}
+        {schedule && (
+          <div className="bg-card border border-border rounded-xl shadow-card">
+            <div className="p-4 border-b border-border flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <h2 className="font-display font-semibold text-foreground flex items-center gap-2">
+                <Calendar className="h-5 w-5 text-primary" />
+                <span className="truncate">{schedule.name}</span>
+              </h2>
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex gap-1 flex-wrap">
+                  {Array.from({ length: schedule.days }, (_, i) => (
+                    <Button key={i} size="sm" variant={selectedDay === i ? "default" : "outline"} onClick={() => setSelectedDay(i)} className={selectedDay === i ? "gradient-primary text-primary-foreground" : ""}>
+                      Jour {i + 1}
+                    </Button>
+                  ))}
+                </div>
+                <Button size="sm" variant="outline" onClick={() => setSpecialSlotOpen(true)} className="gap-1"><Mic className="h-3.5 w-3.5" />Créneau spécial</Button>
+                <Button size="sm" variant="outline" onClick={() => { setPdfExportTarget("linear"); setPdfOptionsOpen(true); }} className="gap-1"><Download className="h-3.5 w-3.5" />PDF</Button>
+                <Button size="sm" variant="outline" onClick={() => { const s = getSchedule(); if (!s) return; exportBookletPDF(s, getArticles(), customLogoDataUrl || undefined); toast.success("Livret PDF généré !"); }} className="gap-1"><FileText className="h-3.5 w-3.5" />Livret</Button>
+                <Button size="sm" variant="outline" onClick={() => { if (!schedule) return; const b = buildBadgesFromSchedule(schedule, articles); if (!b.length) { toast.error("Aucun intervenant"); return; } setBadgesConfigOpen(true); }} className="gap-1"><UserCheck className="h-3.5 w-3.5" />Badges</Button>
+                <Button size="sm" variant="outline" onClick={() => { if (!schedule) return; const r = buildRecipientsFromSchedule(schedule, articles); if (!r.length) { toast.error("Aucun destinataire"); return; } setCertificatesOpen(true); }} className="gap-1"><Award className="h-3.5 w-3.5" />Attestations</Button>
+                <Button size="sm" variant="outline" onClick={() => { if (!schedule) return; exportScheduleXLSX(schedule, articles); toast.success("Export Excel généré !"); }} className="gap-1"><Download className="h-3.5 w-3.5" />Excel</Button>
+              </div>
+            </div>
+            <div className="p-4">
+              <ScheduleGrid schedule={schedule} articles={articles} selectedDay={selectedDay} onSlotMoved={() => setRefreshKey((k) => k + 1)} onEditSpecialSlot={(slot) => setEditSpecialSlot(slot)} onSelectDay={(d) => setSelectedDay(d)} />
+            </div>
+          </div>
+        )}
+      </div>
 
-// Improved schedule generation handling 100+ articles
-export function generateScheduleLocally(
-  conferenceArticles: Article[],
-  config: { name: string; days: number; rooms: string[]; startHour: number; endHour: number; dayHours?: DayHours[]; breakMinutes?: number; lunchStart?: string; lunchEnd?: string; moderatorsList?: string[]; moderatorThemeMap?: Record<string, string[]>; resetModerators?: boolean; chairsList?: string[]; chairThemeMap?: Record<string, string[]>; chairRoomMap?: Record<string, string[]>; resetChairs?: boolean; themeRoomMap?: Record<string, string> }
-): ConferenceSchedule {
-  const accepted = conferenceArticles.filter((a) => a.status === "accepted");
-  const slots: ScheduleSlot[] = [];
-  const BREAK = config.breakMinutes ?? 10;
-  const parseMins = (t: string, fallback: number) => { const [h, m] = t.split(":").map(Number); return isNaN(h) ? fallback : h * 60 + (m || 0); };
-  const LUNCH_START = parseMins(config.lunchStart || "", 12 * 60);
-  const LUNCH_END = parseMins(config.lunchEnd || "", 13 * 60 + 30);
+      <AddArticleDialog open={dialogOpen} onOpenChange={setDialogOpen} onAdded={() => { setRefreshKey((k) => k + 1); toast.success("Article ajouté !"); }} />
+      <ImportCsvDialog open={importOpen} onOpenChange={setImportOpen} onImported={(n) => { setRefreshKey((k) => k + 1); toast.success(`${n} article${n > 1 ? "s" : ""} importé${n > 1 ? "s" : ""} !`); }} />
+      {schedule && <AddSpecialSlotDialog open={specialSlotOpen} onOpenChange={setSpecialSlotOpen} schedule={schedule} onAdded={() => setRefreshKey((k) => k + 1)} />}
+      {schedule && <EditSpecialSlotDialog open={!!editSpecialSlot} onOpenChange={(open) => { if (!open) setEditSpecialSlot(null); }} schedule={schedule} slot={editSpecialSlot} onUpdated={() => setRefreshKey((k) => k + 1)} />}
+      <EditArticleDialog open={!!editArticle} onOpenChange={(open) => { if (!open) setEditArticle(null); }} article={editArticle} onUpdated={() => setRefreshKey((k) => k + 1)} />
+      <PresentationTypesDialog open={typesDialogOpen} onOpenChange={setTypesDialogOpen} onChanged={() => setRefreshKey((k) => k + 1)} />
+      <OrganizersDialog open={organizersDialogOpen} onOpenChange={setOrganizersDialogOpen} onChanged={() => setRefreshKey((k) => k + 1)} />
+      <VerificationConfigDialog open={verifyDialogOpen} onOpenChange={setVerifyDialogOpen} conferenceId={projectSlug} onSynced={() => { setRefreshKey((k) => k + 1); cloudSave(true); }} />
 
-  // Per-day start/end helpers
-  const getDayStart = (d: number) => {
-    const dh = config.dayHours?.[d];
-    return dh ? dh.startHour * 60 : config.startHour * 60;
-  };
-  const getDayEnd = (d: number) => {
-    const dh = config.dayHours?.[d];
-    return dh ? dh.endHour * 60 : config.endHour * 60;
-  };
+      {schedule && (
+        <BadgesConfigDialog
+          open={badgesConfigOpen} onOpenChange={setBadgesConfigOpen}
+          badges={[...buildBadgesFromSchedule(schedule, articles), ...organizersList.filter((o) => !buildBadgesFromSchedule(schedule, articles).some((b) => b.name.toLowerCase() === o.name.toLowerCase())).map((o) => ({ name: o.name, role: "organizer" as const, affiliation: o.role || undefined }))]}
+          conferenceName={schedule.name} customLogoDataUrl={customLogoDataUrl || undefined}
+          onGenerate={async (opts, customizedBadges) => {
+            try { await exportBadgesPDF(schedule, customizedBadges, { ...opts, customLogoDataUrl: customLogoDataUrl || undefined }); toast.success(`${customizedBadges.length} badges générés !`); }
+            catch (e) { console.error(e); toast.error("Erreur lors de la génération des badges"); }
+          }}
+        />
+      )}
+      {schedule && (
+        <CertificatesConfigDialog
+          open={certificatesOpen} onOpenChange={setCertificatesOpen}
+          recipients={[...buildRecipientsFromSchedule(schedule, articles), ...organizersList.filter((o) => !buildRecipientsFromSchedule(schedule, articles).some((r) => r.name.toLowerCase() === o.name.toLowerCase())).map((o) => ({ name: o.name, role: "organizer" as const, affiliation: o.role || undefined }))]}
+          conferenceName={schedule.name} customLogoDataUrl={customLogoDataUrl || undefined}
+        />
+      )}
 
-  // Group by category, sort categories by size (largest first for better packing)
-  const byCategory = new Map<string, Article[]>();
-  accepted.forEach((a) => {
-    const list = byCategory.get(a.category) || [];
-    list.push(a);
-    byCategory.set(a.category, list);
-  });
-  const sortedCategories = Array.from(byCategory.entries())
-    .sort((a, b) => b[1].length - a[1].length);
+      {/* Moderators Dialog */}
+      <Dialog open={moderatorsDialogOpen} onOpenChange={setModeratorsDialogOpen}>
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Gestion des modérateurs</DialogTitle>
+            <DialogDescription>Ajoutez des modérateurs et assignez-les à des thématiques spécifiques.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Ajouter un modérateur</Label>
+              <div className="flex gap-2">
+                <Input placeholder="Nom du modérateur" value={newModerator} onChange={(e) => setNewModerator(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleAddModerator(); }} />
+                <Button onClick={handleAddModerator} size="sm" className="shrink-0"><Plus className="h-4 w-4" /></Button>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" className="gap-2 w-full" asChild>
+                <label><Upload className="h-4 w-4" />Importer depuis un fichier (CSV/TXT)<input type="file" accept=".csv,.txt" className="hidden" onChange={handleImportModerators} /></label>
+              </Button>
+            </div>
+            {moderatorsList.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">Aucun modérateur ajouté</p>
+            ) : (
+              <div className="space-y-1 max-h-40 overflow-y-auto">
+                {moderatorsList.map((m) => (
+                  <div key={m} className="flex items-center justify-between px-3 py-2 rounded-lg bg-muted/50">
+                    <span className="text-sm text-foreground">{m}</span>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => handleRemoveModerator(m)}><X className="h-3.5 w-3.5" /></Button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {moderatorsList.length > 0 && <Button variant="outline" size="sm" onClick={handleClearModerators} className="w-full text-destructive hover:text-destructive">Vider la liste</Button>}
+            {moderatorsList.length > 0 && (
+              <div className="space-y-3 border-t border-border pt-4">
+                <Label className="text-sm font-medium flex items-center gap-2"><UserCheck className="h-4 w-4 text-accent" />Assignation par thématique</Label>
+                <div className="space-y-3">
+                  {categoriesList.map((cat) => {
+                    const assigned = moderatorThemeMap[cat] || [];
+                    return (
+                      <div key={cat} className="space-y-1.5">
+                        <p className="text-sm font-medium text-foreground">{cat}</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {moderatorsList.map((mod) => {
+                            const isSelected = assigned.includes(mod);
+                            return (
+                              <Badge key={mod} variant="outline" className={cn("cursor-pointer transition-colors text-xs", isSelected ? "bg-accent/15 border-accent/50 text-accent hover:bg-accent/25" : "bg-muted/30 border-border text-muted-foreground hover:bg-muted/50")}
+                                onClick={() => setModeratorThemeMap((prev) => { const current = prev[cat] || []; const next = isSelected ? current.filter((m) => m !== mod) : [...current, mod]; return { ...prev, [cat]: next }; })}>
+                                {mod}
+                              </Badge>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            <div className="pt-4 border-t border-border">
+              <Button onClick={() => { setModeratorsDialogOpen(false); toast.success("Modérateurs validés"); }} className="w-full gap-2 gradient-accent text-accent-foreground"><Check className="h-4 w-4" />Valider</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
-  // Build a per-room/per-day blocked intervals tracker
-  const idx = (day: number, room: number) => day * config.rooms.length + room;
+      {/* Categories Dialog */}
+      <Dialog open={categoriesDialogOpen} onOpenChange={setCategoriesDialogOpen}>
+        <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Gestion des thématiques / axes</DialogTitle>
+            <DialogDescription>Définissez les thématiques de votre conférence.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Ajouter une thématique</Label>
+              <div className="flex gap-2">
+                <Input placeholder="Nom de la thématique" value={newCategory} onChange={(e) => setNewCategory(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (newCategory.trim()) { addCategory(newCategory.trim()); setNewCategory(""); setRefreshKey((k) => k + 1); } } }} />
+                <Button onClick={() => { if (newCategory.trim()) { addCategory(newCategory.trim()); setNewCategory(""); setRefreshKey((k) => k + 1); } }} size="sm" className="shrink-0"><Plus className="h-4 w-4" /></Button>
+              </div>
+            </div>
+            {categoriesList.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">Aucune thématique définie.</p>
+            ) : (
+              <div className="space-y-1 max-h-60 overflow-y-auto">
+                {categoriesList.map((c) => (
+                  <div key={c} className="flex items-center justify-between px-3 py-2 rounded-lg bg-muted/50">
+                    <span className="text-sm text-foreground">{c}</span>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => { removeCategory(c); setRefreshKey((k) => k + 1); }}><X className="h-3.5 w-3.5" /></Button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {categoriesList.length > 0 && <Button variant="outline" size="sm" onClick={() => { clearCategories(); setRefreshKey((k) => k + 1); toast.success("Thématiques vidées"); }} className="w-full text-destructive hover:text-destructive">Vider la liste</Button>}
+            <div className="pt-4 border-t border-border">
+              <Button onClick={() => { setCategoriesDialogOpen(false); toast.success("Thématiques validées"); }} className="w-full gap-2 gradient-accent text-accent-foreground"><Check className="h-4 w-4" />Valider</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
-  // Collect blocked intervals from existing special slots
-  const blockedIntervals: { start: number; end: number }[][] = [];
-  for (let d = 0; d < config.days; d++) {
-    for (let r = 0; r < config.rooms.length; r++) {
-      blockedIntervals.push([]);
-    }
-  }
+      {/* Session Chairs Dialog */}
+      <Dialog open={chairsDialogOpen} onOpenChange={setChairsDialogOpen}>
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Gestion des présidents de séance</DialogTitle>
+            <DialogDescription>Ajoutez les présidents de séance et assignez-les à des thématiques.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Ajouter un président de séance</Label>
+              <div className="flex gap-2">
+                <Input placeholder="Nom du président de séance" value={newChair} onChange={(e) => setNewChair(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleAddChair(); }} />
+                <Button onClick={handleAddChair} size="sm" className="shrink-0"><Plus className="h-4 w-4" /></Button>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" className="gap-2 w-full" asChild>
+                <label><Upload className="h-4 w-4" />Importer depuis un fichier (CSV/TXT)<input type="file" accept=".csv,.txt" className="hidden" onChange={handleImportChairs} /></label>
+              </Button>
+            </div>
+            {chairsList.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">Aucun président ajouté</p>
+            ) : (
+              <div className="space-y-1 max-h-40 overflow-y-auto">
+                {chairsList.map((c) => (
+                  <div key={c} className="flex items-center justify-between px-3 py-2 rounded-lg bg-muted/50">
+                    <span className="text-sm text-foreground">{c}</span>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => handleRemoveChair(c)}><X className="h-3.5 w-3.5" /></Button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {chairsList.length > 0 && <Button variant="outline" size="sm" onClick={handleClearChairs} className="w-full text-destructive hover:text-destructive">Vider la liste</Button>}
+            <div className="pt-4 border-t border-border">
+              <Button onClick={() => { setChairsDialogOpen(false); toast.success("Présidents validés"); }} className="w-full gap-2 gradient-accent text-accent-foreground"><Check className="h-4 w-4" />Valider</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
-  const existingSpecials = schedule?.specialSlots || [];
-  for (const sp of existingSpecials) {
-    const spStart = parseMins(sp.startTime, 0);
-    const spEnd = parseMins(sp.endTime, 0);
-    if (sp.room === "all") {
-      // Block all rooms for this day
-      for (let r = 0; r < config.rooms.length; r++) {
-        if (sp.day < config.days) {
-          blockedIntervals[idx(sp.day, r)].push({ start: spStart, end: spEnd });
-        }
-      }
-    } else {
-      const rIdx = config.rooms.indexOf(sp.room);
-      if (rIdx >= 0 && sp.day < config.days) {
-        blockedIntervals[idx(sp.day, rIdx)].push({ start: spStart, end: spEnd });
-      }
-    }
-  }
+      {/* PDF / DOCX Export Dialog */}
+      <Dialog open={pdfOptionsOpen} onOpenChange={setPdfOptionsOpen}>
+        <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{pdfExportTarget === "docx" ? "Options d'export DOCX" : pdfExportTarget === "byRoom" ? "PDF par salle" : "Options d'export PDF"}</DialogTitle>
+            <DialogDescription>{pdfExportTarget === "byRoom" ? "Une page par salle." : "Choisissez les colonnes et le format."}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5">
+            <div className="space-y-3">
+              <Label className="text-sm font-medium">Cible d'export</Label>
+              <Select value={pdfExportTarget} onValueChange={(v) => setPdfExportTarget(v as "linear" | "byRoom" | "docx")}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="linear">PDF — chronogramme global</SelectItem>
+                  <SelectItem value="byRoom">PDF — une page par salle</SelectItem>
+                  <SelectItem value="docx">DOCX — document Word éditable</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-3 border-t border-border pt-4">
+              <Label className="text-sm font-medium">Colonnes à afficher</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {(Object.keys(pdfOptions.columns) as Array<keyof typeof pdfOptions.columns>).map((key) => {
+                  const labels: Record<string, string> = { horaire: "Horaire", salle: "Salle", thematique: "Thématique", titre: "Titre", auteurs: "Auteurs", moderateur: "Modérateur", president: "Président de séance", type: "Type" };
+                  const disabled = pdfExportTarget === "byRoom" && key === "salle";
+                  return (
+                    <div key={key} className="flex items-center gap-2">
+                      <Checkbox id={`pdf-col-${key}`} disabled={disabled} checked={pdfOptions.columns[key]} onCheckedChange={(checked) => { setPdfOptions((prev) => ({ ...prev, columns: { ...prev.columns, [key]: checked === true } })); }} />
+                      <Label htmlFor={`pdf-col-${key}`} className={cn("text-sm cursor-pointer", disabled && "opacity-50")}>{labels[key]}{disabled ? " (implicite)" : ""}</Label>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            {pdfExportTarget === "linear" && (
+              <div className="space-y-3 border-t border-border pt-4">
+                <Label className="text-sm font-medium">Organisation</Label>
+                <div className="flex items-center justify-between">
+                  <div><p className="text-sm text-foreground">Regrouper par blocs thématiques</p><p className="text-xs text-muted-foreground">Le président de séance sera affiché en en-tête</p></div>
+                  <Switch checked={pdfOptions.groupByTheme} onCheckedChange={(checked) => setPdfOptions((prev) => ({ ...prev, groupByTheme: checked }))} />
+                </div>
+              </div>
+            )}
+            <div className="space-y-3 border-t border-border pt-4">
+              <Label className="text-sm font-medium">Format</Label>
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-foreground">Orientation du document</p>
+                <Select value={pdfOptions.orientation} onValueChange={(v) => setPdfOptions((prev) => ({ ...prev, orientation: v as "landscape" | "portrait" }))}>
+                  <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="landscape">Paysage</SelectItem><SelectItem value="portrait">Portrait</SelectItem></SelectContent>
+                </Select>
+              </div>
+              {pdfExportTarget !== "docx" && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-foreground">Inclure le logo</p>
+                    <Switch checked={pdfOptions.showLogo} onCheckedChange={(checked) => setPdfOptions((prev) => ({ ...prev, showLogo: checked }))} />
+                  </div>
+                  {pdfOptions.showLogo && (
+                    <div className="space-y-2 pt-2">
+                      <Label className="text-sm">Logo personnalisé</Label>
+                      {customLogoDataUrl ? (
+                        <div className="flex items-center gap-3">
+                          <img src={customLogoDataUrl} alt="Logo" className="h-10 w-10 object-contain rounded border border-border" />
+                          <Button variant="outline" size="sm" onClick={() => setCustomLogoDataUrl(null)}>Supprimer</Button>
+                        </div>
+                      ) : (
+                        <Button variant="outline" size="sm" className="gap-2 w-full" asChild>
+                          <label><Upload className="h-4 w-4" />Charger un logo (PNG/JPG)<input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (ev) => { setCustomLogoDataUrl(ev.target?.result as string); toast.success("Logo chargé"); }; reader.readAsDataURL(file); e.target.value = ""; }} /></label>
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+            <Button onClick={() => {
+              const s = getSchedule(); if (!s) return;
+              const arts = getArticles();
+              if (pdfExportTarget === "docx") { exportScheduleDOCX(s, arts, pdfOptions, customLogoDataUrl || undefined); toast.success("Document Word généré !"); }
+              else if (pdfExportTarget === "byRoom") { exportSchedulePDFByRoom(s, arts, pdfOptions, customLogoDataUrl || undefined); toast.success("PDF par salle exporté !"); }
+              else { exportSchedulePDF(s, arts, pdfOptions, customLogoDataUrl || undefined); toast.success("PDF exporté !"); }
+              setPdfOptionsOpen(false);
+            }} className="w-full gap-2 gradient-accent text-accent-foreground">
+              <Download className="h-4 w-4" />{pdfExportTarget === "docx" ? "Exporter le DOCX" : "Exporter le PDF"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+};
 
-  // Sort blocked intervals by start time
-  for (const intervals of blockedIntervals) {
-    intervals.sort((a, b) => a.start - b.start);
-  }
+const ArticleRow = ({ article, onDelete, onEdit }: { article: Article; onDelete: (id: string) => void; onEdit: (a: Article) => void }) => (
+  <div className="flex items-center justify-between p-4 hover:bg-muted/50 transition-colors">
+    <div className="min-w-0 flex-1 cursor-pointer" onClick={() => onEdit(article)}>
+      <div className="flex items-center gap-2 mb-1">
+        <p className="font-medium text-foreground truncate">{article.title}</p>
+        <Badge variant="outline" className={STATUS_BADGE[article.status]}>{STATUS_LABEL[article.status]}</Badge>
+        <Badge variant="outline" className="text-xs capitalize">{article.type || "—"}</Badge>
+      </div>
+      <p className="text-sm text-muted-foreground truncate">{article.authors}{article.moderator ? ` · Mod: ${article.moderator}` : ""}{article.sessionChair ? ` · Prés: ${article.sessionChair}` : ""} · {article.category} · {article.duration} min</p>
+    </div>
+    <div className="flex items-center gap-1 ml-2">
+      <Button variant="ghost" size="icon" onClick={() => onEdit(article)} className="text-muted-foreground hover:text-primary"><Pencil className="h-4 w-4" /></Button>
+      <Button variant="ghost" size="icon" onClick={() => onDelete(article.id)} className="text-muted-foreground hover:text-destructive"><Trash2 className="h-4 w-4" /></Button>
+    </div>
+  </div>
+);
 
-  // Per-room/per-day current time pointer
-  const roomTimelines: number[] = [];
-  for (let d = 0; d < config.days; d++) {
-    for (let r = 0; r < config.rooms.length; r++) {
-      roomTimelines.push(getDayStart(d));
-    }
-  }
-
-  // Check if a time range conflicts with blocked intervals
-  function conflictsWithBlocked(key: number, start: number, end: number): boolean {
-    return blockedIntervals[key].some((b) => start < b.end && end > b.start);
-  }
-
-  // Find the next valid start time that doesn't overlap blocked intervals
-  function nextFreeStart(key: number, start: number, duration: number): number {
-    let candidate = start;
-    for (const b of blockedIntervals[key]) {
-      if (candidate < b.end && candidate + duration > b.start) {
-        candidate = b.end; // skip past this blocked interval
-      }
-    }
-    return candidate;
-  }
-
-  // Try to place an article in a specific (day, room). Returns true if placed.
-  function tryPlaceAt(article: Article, day: number, r: number): string | null {
-    const dayEndMin = getDayEnd(day);
-    const key = idx(day, r);
-    let start = roomTimelines[key];
-    if (start < LUNCH_END && start + article.duration > LUNCH_START && dayEndMin > LUNCH_END) {
-      start = Math.max(start, LUNCH_END);
-    }
-    start = nextFreeStart(key, start, article.duration);
-    if (start < LUNCH_END && start + article.duration > LUNCH_START && dayEndMin > LUNCH_END) {
-      start = Math.max(start, LUNCH_END);
-      start = nextFreeStart(key, start, article.duration);
-    }
-    const end = start + article.duration;
-    if (end > dayEndMin) return null;
-
-    slots.push({
-      articleId: article.id,
-      room: config.rooms[r],
-      startTime: fmt(start),
-      endTime: fmt(end),
-      day,
-    });
-    roomTimelines[key] = end + BREAK;
-    return config.rooms[r];
-  }
-
-  // Try to place an article in the best available slot.
-  // Returns the room name used, or null if no placement possible.
-  function placeArticle(article: Article, preferDay?: number, preferRoomIdx?: number): string | null {
-    const allDays = Array.from({ length: config.days }, (_, i) => i);
-    const dayOrder = preferDay !== undefined
-      ? [preferDay, ...allDays.filter(d => d !== preferDay)]
-      : allDays;
-
-    // PRIORITY 1: try the preferred room on ALL days before considering any other room.
-    // This prevents articles from being moved to other rooms when their preferred room
-    // still has capacity on another day.
-    if (preferRoomIdx !== undefined && preferRoomIdx >= 0) {
-      for (const day of dayOrder) {
-        const placed = tryPlaceAt(article, day, preferRoomIdx);
-        if (placed) return placed;
-      }
-    }
-
-    // PRIORITY 2: overflow to other rooms (preferred room is full everywhere)
-    for (const day of dayOrder) {
-      const others = Array.from({ length: config.rooms.length }, (_, r) => r)
-        .filter((r) => r !== preferRoomIdx)
-        .sort((a, b) => roomTimelines[idx(day, a)] - roomTimelines[idx(day, b)]);
-      for (const r of others) {
-        const placed = tryPlaceAt(article, day, r);
-        if (placed) return placed;
-      }
-    }
-    return null;
-  }
-
-  // Track theme overflow stats for user feedback
-  const overflowByTheme: Record<string, { preferredRoom: string; overflowRooms: Set<string>; overflowCount: number }> = {};
-
-  // Place articles category by category
-  const themeRoomMap = config.themeRoomMap || {};
-  for (const [category, articles] of sortedCategories) {
-    articles.sort((a, b) => b.duration - a.duration);
-
-    const preferredRoomName = themeRoomMap[category];
-    const preferredRoomIdx = preferredRoomName ? config.rooms.indexOf(preferredRoomName) : -1;
-    const preferRoomIdx = preferredRoomIdx >= 0 ? preferredRoomIdx : undefined;
-
-    // Choose best day: when a preferred room exists, prioritize the day with most
-    // remaining capacity in that room (so we maximize what fits in the dedicated room
-    // before having to overflow to other rooms).
-    let bestDay = 0;
-    let bestCapacity = -1;
-    for (let d = 0; d < config.days; d++) {
-      let cap = 0;
-      if (preferRoomIdx !== undefined) {
-        cap = getDayEnd(d) - roomTimelines[idx(d, preferRoomIdx)];
-      } else {
-        for (let r = 0; r < config.rooms.length; r++) {
-          cap += getDayEnd(d) - roomTimelines[idx(d, r)];
-        }
-      }
-      if (cap > bestCapacity) { bestCapacity = cap; bestDay = d; }
-    }
-
-    for (const article of articles) {
-      const placedRoom = placeArticle(article, bestDay, preferRoomIdx);
-      // Track overflow: article placed but not in the preferred room
-      if (placedRoom && preferredRoomName && placedRoom !== preferredRoomName) {
-        if (!overflowByTheme[category]) {
-          overflowByTheme[category] = {
-            preferredRoom: preferredRoomName,
-            overflowRooms: new Set(),
-            overflowCount: 0,
-          };
-        }
-        overflowByTheme[category].overflowRooms.add(placedRoom);
-        overflowByTheme[category].overflowCount++;
-      }
-    }
-  }
-
-  // Expose overflow info on the schedule for the UI to surface
-  const overflowReport: ThemeOverflow[] = Object.entries(overflowByTheme).map(([theme, info]) => ({
-    theme,
-    preferredRoom: info.preferredRoom,
-    overflowRooms: Array.from(info.overflowRooms),
-    overflowCount: info.overflowCount,
-  }));
-  lastOverflowReport = overflowReport;
-
-  // Collect all article mutations in a map, then apply once at the end
-  const mutations: Record<string, Partial<Article>> = {};
-  const articleById = new Map(conferenceArticles.map((a) => [a.id, { ...a }]));
-
-  // Reset moderators if requested
-  if (config.resetModerators) {
-    for (const slot of slots) {
-      const art = articleById.get(slot.articleId);
-      if (art) {
-        art.moderator = "";
-        mutations[art.id] = { ...mutations[art.id], moderator: "" };
-      }
-    }
-  }
-
-  // Reset session chairs if requested
-  if (config.resetChairs) {
-    for (const slot of slots) {
-      const art = articleById.get(slot.articleId);
-      if (art) {
-        art.sessionChair = "";
-        mutations[art.id] = { ...mutations[art.id], sessionChair: "" };
-      }
-    }
-  }
-
-  // Group slots by (day, room) and sort chronologically so a single
-  // moderator/chair handles consecutive presentations of the same theme
-  // before being replaced (avoids "pell-mell" assignments).
-  const groupKey = (s: typeof slots[number]) => `${s.day}::${s.room}`;
-  const groups = new Map<string, typeof slots>();
-  for (const slot of slots) {
-    const k = groupKey(slot);
-    if (!groups.has(k)) groups.set(k, [] as any);
-    (groups.get(k) as any).push(slot);
-  }
-  for (const arr of groups.values()) {
-    (arr as any).sort((a: any, b: any) => a.startTime.localeCompare(b.startTime));
-  }
-
-  // Auto-assign moderators (continuous per session theme within a room/day)
-  const modList = config.moderatorsList ?? moderators;
-  const themeMapping = config.moderatorThemeMap ?? {};
-  const hasThemeMapping = Object.keys(themeMapping).some((k) => (themeMapping[k] || []).length > 0);
-
-  if (hasThemeMapping || modList.length > 0) {
-    const themeModIdx: Record<string, number> = {};
-    let globalModIdx = 0;
-
-    for (const arr of groups.values()) {
-      let currentMod = "";
-      let currentCat: string | null = null;
-      for (const slot of arr) {
-        const art = articleById.get(slot.articleId);
-        if (!art) continue;
-        if (art.moderator) {
-          // Respect existing assignment, but use it as the running moderator
-          currentMod = art.moderator;
-          currentCat = art.category;
-          continue;
-        }
-        // Rotate only when the theme changes within the room/day
-        if (currentCat !== art.category || !currentMod) {
-          const themeMods = themeMapping[art.category];
-          if (themeMods && themeMods.length > 0) {
-            const i = themeModIdx[art.category] ?? 0;
-            currentMod = themeMods[i % themeMods.length];
-            themeModIdx[art.category] = i + 1;
-          } else if (modList.length > 0) {
-            currentMod = modList[globalModIdx % modList.length];
-            globalModIdx++;
-          } else {
-            currentMod = "";
-          }
-          currentCat = art.category;
-        }
-        if (currentMod) {
-          art.moderator = currentMod;
-          mutations[art.id] = { ...mutations[art.id], moderator: currentMod };
-        }
-      }
-    }
-  }
-
-  // Auto-assign session chairs (same continuity logic, with theme + room mapping)
-  const chairList = config.chairsList ?? sessionChairs;
-  const chairMapping = config.chairThemeMap ?? {};
-  const chairRoomMap = config.chairRoomMap ?? {};
-  const hasChairMapping = Object.keys(chairMapping).some((k) => (chairMapping[k] || []).length > 0);
-  const hasChairRoomMap = Object.keys(chairRoomMap).some((k) => (chairRoomMap[k] || []).length > 0);
-
-  if (hasChairMapping || hasChairRoomMap || chairList.length > 0) {
-    const themeChairIdx: Record<string, number> = {};
-    const roomChairIdx: Record<string, number> = {};
-    let globalChairIdx = 0;
-
-    for (const arr of groups.values()) {
-      let currentChair = "";
-      let currentCat: string | null = null;
-      for (const slot of arr) {
-        const art = articleById.get(slot.articleId);
-        if (!art) continue;
-        if (art.sessionChair) {
-          currentChair = art.sessionChair;
-          currentCat = art.category;
-          continue;
-        }
-        if (currentCat !== art.category || !currentChair) {
-          const themeChairs = chairMapping[art.category];
-          const roomChairs = chairRoomMap[slot.room];
-          if (themeChairs && themeChairs.length > 0) {
-            const i = themeChairIdx[art.category] ?? 0;
-            currentChair = themeChairs[i % themeChairs.length];
-            themeChairIdx[art.category] = i + 1;
-          } else if (roomChairs && roomChairs.length > 0) {
-            const i = roomChairIdx[slot.room] ?? 0;
-            currentChair = roomChairs[i % roomChairs.length];
-            roomChairIdx[slot.room] = i + 1;
-          } else if (chairList.length > 0) {
-            currentChair = chairList[globalChairIdx % chairList.length];
-            globalChairIdx++;
-          } else {
-            currentChair = "";
-          }
-          currentCat = art.category;
-        }
-        if (currentChair) {
-          art.sessionChair = currentChair;
-          mutations[art.id] = { ...mutations[art.id], sessionChair: currentChair };
-        }
-      }
-    }
-  }
-
-  // Apply all mutations in a single pass
-  if (Object.keys(mutations).length > 0) {
-    articles = articles.map((a) => mutations[a.id] ? { ...a, ...mutations[a.id] } : a);
-  }
-
-  slots.sort((a, b) => a.day - b.day || a.room.localeCompare(b.room) || a.startTime.localeCompare(b.startTime));
-
-  const newSchedule: ConferenceSchedule = {
-    id: Date.now().toString(),
-    ...config,
-    breakMinutes: BREAK,
-    slots,
-    specialSlots: schedule?.specialSlots || [],
-    createdAt: new Date(),
-  };
-
-  schedule = newSchedule;
-  saveToStorage();
-  return newSchedule;
-}
-
-// ─────────────────────────────────────────────────────────────
-// Cloud sync helpers — called by Conference.tsx
-// ─────────────────────────────────────────────────────────────
-
-/** Export current in-memory state as a plain object (for cloud save) */
-export function exportBlob(): Record<string, unknown> {
-  return {
-    articles,
-    schedule,
-    categories,
-    moderators,
-    sessionChairs,
-    organizers,
-    presentationTypes,
-    savedAt: Date.now(),
-  };
-}
-
-/** Load state from a cloud blob into memory (called on project open) */
-export function loadFromBlob(blob: Record<string, unknown>): void {
-  if (Array.isArray(blob.articles)) articles = blob.articles as Article[];
-  if (blob.schedule !== undefined) schedule = blob.schedule as ConferenceSchedule | null;
-  if (Array.isArray(blob.categories)) categories = blob.categories as string[];
-  if (Array.isArray(blob.moderators)) moderators = blob.moderators as string[];
-  if (Array.isArray(blob.sessionChairs)) sessionChairs = blob.sessionChairs as string[];
-  if (Array.isArray(blob.organizers)) organizers = blob.organizers as Organizer[];
-  if (Array.isArray(blob.presentationTypes) && (blob.presentationTypes as string[]).length > 0)
-    presentationTypes = blob.presentationTypes as string[];
-  saveToStorage(); // also keep localStorage in sync
-}
+export default Conference;
