@@ -215,27 +215,15 @@ const VerificationConfigDialog = ({ open, onOpenChange, conferenceId, onSynced }
       // 2. Construire map code → speaker
       const byCode = new Map(speakers.map((s) => [s.code.trim().toUpperCase(), s]));
 
-      // 3. Parcourir les articles et mettre à jour
+      // 3. Parcourir les articles et mettre à jour — MATCH STRICTEMENT PAR CODE
       const articles = getArticles();
       let updated = 0;
       let skipped = 0;
       let notFound = 0;
 
       for (const article of articles) {
-        // Cherche par code = id de l'article
-        let speaker = byCode.get(article.id.toUpperCase());
-
-        // Sinon cherche par nom dans la colonne auteurs
-        if (!speaker) {
-          speaker = speakers.find((s) => {
-            const fullName = `${s.prenom} ${s.nom}`.toLowerCase().trim();
-            const nom = s.nom.toLowerCase().trim();
-            return (
-              article.authors.toLowerCase().includes(fullName) ||
-              article.authors.toLowerCase().includes(nom)
-            );
-          });
-        }
+        // Cherche uniquement par code = id de l'article (pas de fallback par nom)
+        const speaker = byCode.get(article.id.trim().toUpperCase());
 
         if (!speaker) {
           notFound++;
