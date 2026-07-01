@@ -220,13 +220,16 @@ const VerificationConfigDialog = ({ open, onOpenChange, conferenceId, onSynced }
       let updated = 0;
       let skipped = 0;
       let notFound = 0;
+      const missingCodes: string[] = [];
 
       for (const article of articles) {
-        // Cherche uniquement par code = id de l'article (pas de fallback par nom)
-        const speaker = byCode.get(article.id.trim().toUpperCase());
+        // Priorité au champ `code` (issu du CSV) ; fallback sur l'id interne pour compat.
+        const rawCode = (article.code?.trim() || article.id.trim());
+        const speaker = byCode.get(rawCode.toUpperCase());
 
         if (!speaker) {
           notFound++;
+          if (article.code) missingCodes.push(article.code);
           continue;
         }
 
@@ -465,7 +468,7 @@ const VerificationConfigDialog = ({ open, onOpenChange, conferenceId, onSynced }
                               ⚠ {syncReport.notFound} article(s) sans correspondance intervenant
                               <br />
                               <span className="text-muted-foreground">
-                                (le code speaker ne correspond à aucun article — vérifiez que les codes ou noms concordent)
+                                (aucun intervenant vérifié ne possède le code de cet article — vérifiez que la colonne <code>code</code> du CSV articles correspond au <code>code</code> du CSV intervenants)
                               </span>
                             </p>
                           )}
