@@ -15,6 +15,7 @@ export interface Article {
   duration: number; // minutes
   type: ArticleType;
   status: ArticleStatus;
+  speakerCode?: string; // code du speaker présentateur (table speakers.code)
 }
 
 export interface Organizer {
