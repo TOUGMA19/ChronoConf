@@ -6,6 +6,7 @@ export const DEFAULT_PRESENTATION_TYPES: string[] = ["présentielle", "en ligne"
 
 export interface Article {
   id: string;
+  code?: string; // Code externe (ex. numéro d'article dans le CSV) utilisé pour la synchro intervenants
   title: string;
   authors: string;
   moderator: string;
@@ -15,7 +16,6 @@ export interface Article {
   duration: number; // minutes
   type: ArticleType;
   status: ArticleStatus;
-  speakerCode?: string; // code du speaker présentateur (table speakers.code)
 }
 
 export interface Organizer {
