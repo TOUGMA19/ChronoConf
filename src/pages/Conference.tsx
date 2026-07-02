@@ -291,17 +291,17 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-50 border-b border-border bg-card/95 backdrop-blur-md shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <img src={logoImg} alt="Logo" className="h-14 w-14 object-contain" />
-            <div>
-              <h1 className="text-xl font-display font-bold text-foreground">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3 sm:py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div className="flex items-center gap-3 min-w-0">
+            <img src={logoImg} alt="Logo" className="h-10 w-10 sm:h-14 sm:w-14 object-contain shrink-0" />
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-xl font-display font-bold text-foreground truncate">
                 <span className="text-accent">Chrono</span>Conf
               </h1>
-              <p className="text-sm text-muted-foreground">{projectName} · <span className="text-xs">{userEmail}</span></p>
+              <p className="text-xs sm:text-sm text-muted-foreground truncate">{projectName} · <span className="text-xs">{userEmail}</span></p>
             </div>
           </div>
-          <div className="flex gap-2 items-center flex-wrap justify-end">
+          <div className="flex gap-2 items-center flex-nowrap sm:flex-wrap justify-start sm:justify-end overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 sm:overflow-visible [&>*]:shrink-0" style={{ WebkitOverflowScrolling: "touch" }}>
             <Button variant="ghost" size="icon" onClick={() => setDarkMode(!darkMode)} className="rounded-full" title={darkMode ? "Mode clair" : "Mode sombre"}>
               {darkMode ? <Sun className="h-5 w-5 text-warning" /> : <Moon className="h-5 w-5 text-muted-foreground" />}
             </Button>
@@ -490,21 +490,22 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
             <Checkbox id="resetChairs" checked={resetChairs} onCheckedChange={(c) => setResetChairs(c === true)} />
             <Label htmlFor="resetChairs" className="text-sm cursor-pointer">Réinitialiser les présidents de séance existants lors de la génération</Label>
           </div>
-          <div className="flex gap-2 pt-2">
-            <Button onClick={handleGenerate} className="gradient-accent text-accent-foreground gap-2"><Zap className="h-4 w-4" />Générer le chronogramme</Button>
-            {schedule && <Button variant="outline" onClick={handleClear}>Effacer le chronogramme</Button>}
-            <Button variant="destructive" onClick={handleClearAll} className="gap-2"><Trash2 className="h-4 w-4" />Tout effacer</Button>
+          <div className="flex flex-col sm:flex-row flex-wrap gap-2 pt-2">
+            <Button onClick={handleGenerate} className="gradient-accent text-accent-foreground gap-2 w-full sm:w-auto justify-center"><Zap className="h-4 w-4" />Générer le chronogramme</Button>
+            {schedule && <Button variant="outline" onClick={handleClear} className="w-full sm:w-auto justify-center">Effacer le chronogramme</Button>}
+            <Button variant="destructive" onClick={handleClearAll} className="gap-2 w-full sm:w-auto justify-center"><Trash2 className="h-4 w-4" />Tout effacer</Button>
           </div>
         </div>
 
         {schedule && (
           <div className="bg-card border border-border rounded-xl shadow-card">
-            <div className="p-4 border-b border-border flex items-center justify-between">
-              <h2 className="font-display font-semibold text-foreground flex items-center gap-2">
-                <Calendar className="h-5 w-5 text-primary" />{schedule.name}
+            <div className="p-3 sm:p-4 border-b border-border flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <h2 className="font-display font-semibold text-foreground flex items-center gap-2 min-w-0">
+                <Calendar className="h-5 w-5 text-primary shrink-0" />
+                <span className="truncate">{schedule.name}</span>
               </h2>
-              <div className="flex items-center gap-2 flex-wrap">
-                <div className="flex gap-1">
+              <div className="flex items-center gap-2 flex-nowrap sm:flex-wrap overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 sm:overflow-visible [&>*]:shrink-0" style={{ WebkitOverflowScrolling: "touch" }}>
+                <div className="flex gap-1 flex-nowrap sm:flex-wrap [&>*]:shrink-0">
                   {Array.from({ length: schedule.days }, (_, i) => (
                     <Button key={i} size="sm" variant={selectedDay === i ? "default" : "outline"} onClick={() => setSelectedDay(i)} className={selectedDay === i ? "gradient-primary text-primary-foreground" : ""}>
                       Jour {i + 1}
