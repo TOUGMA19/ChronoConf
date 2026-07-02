@@ -34,20 +34,22 @@ Installez si ce n'est pas déjà fait :
 
 ---
 
-## Étape 3 — Exécuter la migration SQL
+## Étape 3 — Exécuter les migrations SQL
 
 1. Dans votre projet Supabase → **SQL Editor** (menu gauche)
 2. Cliquez **New query**
 3. Copiez-collez tout le contenu de `supabase/migrations/20260001_chronoconf_schema.sql`
 4. Cliquez **Run**
+5. Recommencez avec une nouvelle requête pour `supabase/migrations/20260002_schedule_publication.sql` (publication du programme pour les communicants) et cliquez **Run**
 
-Vous devez voir : `Success. No rows returned`
+Vous devez voir à chaque fois : `Success. No rows returned`
 
-**Vérifiez** dans **Table Editor** que ces 4 tables existent :
+**Vérifiez** dans **Table Editor** que ces 5 tables existent :
 - `conference_data`
 - `verify_config`
 - `speakers`
 - `speaker_edits`
+- `published_schedules` (statut de publication du programme : brouillon / provisoire / définitif)
 
 ---
 
@@ -231,6 +233,9 @@ Les données restent aussi dans `localStorage` comme cache local — si le rése
 
 ### "Permission denied" lors du chargement des projets
 → La migration SQL n'a pas été exécutée, ou les politiques RLS sont absentes. Ré-exécutez `20260001_chronoconf_schema.sql`.
+
+### La page /programme affiche "Le programme n'a pas encore été publié" alors qu'un chronogramme existe
+→ C'est normal tant que l'organisateur n'a pas cliqué sur **Publier comme provisoire** ou **Publier comme définitif** (bouton dans l'onglet chronogramme). Si le problème persiste après publication, vérifiez que `20260002_schedule_publication.sql` a bien été exécutée.
 
 ### L'edge function renvoie 500
 → Vérifiez dans Supabase → **Edge Functions → Logs** l'erreur précise. Assurez-vous que `SUPABASE_SERVICE_ROLE_KEY` est bien injectée (automatique sur Supabase hosted).
