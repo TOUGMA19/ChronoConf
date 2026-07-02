@@ -42,6 +42,12 @@ export function buildShareLink(token: string): string {
   return `${origin}/verify?t=${encodeURIComponent(token)}`;
 }
 
+/** Build the public "programme" link (published schedule) from the same token */
+export function buildProgrammeLink(token: string): string {
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  return `${origin}/programme?t=${encodeURIComponent(token)}`;
+}
+
 /** Extract token from URL search params */
 export function getTokenFromUrl(search = window.location.search): string | null {
   return new URLSearchParams(search).get("t");
