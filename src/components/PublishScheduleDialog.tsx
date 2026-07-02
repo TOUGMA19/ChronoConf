@@ -28,21 +28,25 @@ const STATUS_INFO: Record<PublicationStatus, {
   label: string; 
   badge: string; 
   icon: JSX.Element;
+  color: string;
 }> = {
   draft: { 
     label: "Non publié — invisible pour les communicants", 
     badge: "bg-muted text-muted-foreground border-border", 
-    icon: <EyeOff className="h-4 w-4" />
+    icon: <EyeOff className="h-4 w-4" />,
+    color: "text-muted-foreground"
   },
   provisional: { 
     label: "Publié — Programme provisoire", 
     badge: "bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800", 
-    icon: <Clock3 className="h-4 w-4" />
+    icon: <Clock3 className="h-4 w-4" />,
+    color: "text-amber-600 dark:text-amber-400"
   },
   final: { 
     label: "Publié — Programme définitif", 
     badge: "bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800", 
-    icon: <CheckCircle2 className="h-4 w-4" />
+    icon: <CheckCircle2 className="h-4 w-4" />,
+    color: "text-emerald-600 dark:text-emerald-400"
   },
 };
 
@@ -70,6 +74,7 @@ const PublishScheduleDialog = ({ open, onOpenChange, conferenceId, schedule, art
       setToken(cfg.data?.token as string ?? null);
     } catch (e) {
       toast.error("Erreur lors du chargement du statut");
+      console.error(e);
     } finally {
       setLoading(false);
     }
@@ -136,20 +141,28 @@ const PublishScheduleDialog = ({ open, onOpenChange, conferenceId, schedule, art
           </div>
         ) : (
           <div className="space-y-6">
-            {/* Status */}
+            {/* Status Card */}
             <div className="p-4 rounded-xl border bg-card">
-              <Badge 
-                variant="outline" 
-                className={`gap-2 px-3 py-1.5 text-sm font-medium ${STATUS_INFO[status].badge}`}
-              >
-                {STATUS_INFO[status].icon}
-                {STATUS_INFO[status].label}
-              </Badge>
+              <div className="flex items-center justify-between">
+                <Badge 
+                  variant="outline" 
+                  className={`gap-2 px-3 py-1.5 text-sm font-medium ${STATUS_INFO[status].badge}`}
+                >
+                  {STATUS_INFO[status].icon}
+                  {STATUS_INFO[status].label}
+                </Badge>
+              </div>
 
               {publishedAt && status !== "draft" && (
                 <p className="mt-3 text-sm text-muted-foreground">
                   Dernière publication : <span className="font-medium text-foreground">
-                    {new Date(publishedAt).toLocaleString("fr-FR")}
+                    {new Date(publishedAt).toLocaleString("fr-FR", {
+                      day: "2-digit",
+                      month: "2-digit",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit"
+                    })}
                   </span>
                 </p>
               )}
@@ -166,32 +179,13 @@ const PublishScheduleDialog = ({ open, onOpenChange, conferenceId, schedule, art
             {schedule && status !== "draft" && (
               <div className="flex gap-3 p-4 rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800 text-amber-700 dark:text-amber-400">
                 <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
-                <p className="text-sm">Si vous modifiez le chronogramme, pensez à le republier.</p>
-              </div>
-            )}
-
-            {/* Bouton "Vérifier mes informations" - Version améliorée */}
-            {!token && (
-              <div className="pt-2 pb-2">
-                <Button 
-                  asChild 
-                  size="lg"
-                  className="group relative w-full overflow-hidden bg-gradient-to-r from-violet-600 via-indigo-600 to-blue-600 hover:from-violet-700 hover:via-indigo-700 hover:to-blue-700 text-white shadow-lg shadow-indigo-500/30 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] h-14 text-base font-medium"
-                >
-                  <a href="/verification" className="flex items-center justify-center gap-3">
-                    Vérifier mes informations
-                    <span className="group-hover:translate-x-1 transition-transform duration-300 text-lg">→</span>
-                    {/* Effet brillance */}
-                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
-                  </a>
-                </Button>
-                <p className="text-center text-xs text-muted-foreground mt-3">
-                  Requis pour obtenir le lien public du programme
+                <p className="text-sm">
+                  Si vous modifiez ou régénérez le chronogramme, pensez à <strong>republier</strong> pour que les communicants voient la version à jour.
                 </p>
               </div>
             )}
 
-            {/* Boutons de publication */}
+            {/* Action Buttons */}
             <div className="grid gap-3">
               <Button
                 onClick={() => doPublish("provisional")}
@@ -200,7 +194,11 @@ const PublishScheduleDialog = ({ open, onOpenChange, conferenceId, schedule, art
                 size="lg"
                 className="justify-start gap-3 h-12 text-base border-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950"
               >
-                {publishing === "provisional" ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+                {publishing === "provisional" ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <Send className="h-5 w-5" />
+                )}
                 Publier comme provisoire
               </Button>
 
@@ -210,7 +208,11 @@ const PublishScheduleDialog = ({ open, onOpenChange, conferenceId, schedule, art
                 size="lg"
                 className="justify-start gap-3 h-12 text-base bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 shadow-md"
               >
-                {publishing === "final" ? <Loader2 className="h-5 w-5 animate-spin" /> : <ShieldCheck className="h-5 w-5" />}
+                {publishing === "final" ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <ShieldCheck className="h-5 w-5" />
+                )}
                 Publier comme définitif
               </Button>
 
@@ -222,31 +224,38 @@ const PublishScheduleDialog = ({ open, onOpenChange, conferenceId, schedule, art
                   size="lg"
                   className="justify-start gap-3 h-12 text-base text-destructive hover:text-destructive hover:bg-destructive/10"
                 >
-                  {publishing === "draft" ? <Loader2 className="h-5 w-5 animate-spin" /> : <EyeOff className="h-5 w-5" />}
+                  {publishing === "draft" ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <EyeOff className="h-5 w-5" />
+                  )}
                   Dépublier (masquer aux communicants)
                 </Button>
               )}
             </div>
 
-            {/* Lien public */}
+            {/* Public Link */}
             {link && status !== "draft" && (
               <div className="pt-6 border-t border-border space-y-3">
-                <p className="font-medium">Lien du programme public</p>
+                <p className="font-medium text-foreground">Lien du programme public</p>
+                
                 <div className="flex gap-2">
                   <code className="flex-1 bg-muted px-4 py-3 rounded-xl text-sm font-mono break-all border">
                     {link}
                   </code>
                 </div>
+
                 <div className="flex gap-2">
                   <Button 
                     variant="outline" 
                     className="flex-1 gap-2"
                     onClick={() => {
-                      navigator.clipboard.writeText(link!);
-                      toast.success("Lien copié !");
+                      navigator.clipboard.writeText(link);
+                      toast.success("Lien copié dans le presse-papiers");
                     }}
                   >
-                    <Copy className="h-4 w-4" /> Copier
+                    <Copy className="h-4 w-4" />
+                    Copier
                   </Button>
                   <Button variant="outline" asChild className="flex-1">
                     <a href={link} target="_blank" rel="noreferrer">
@@ -255,7 +264,17 @@ const PublishScheduleDialog = ({ open, onOpenChange, conferenceId, schedule, art
                     </a>
                   </Button>
                 </div>
+
+                <p className="text-xs text-muted-foreground">
+                  Ce lien est également utilisé pour la vérification des informations des intervenants.
+                </p>
               </div>
+            )}
+
+            {!token && !loading && (
+              <p className="text-sm text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 p-4 rounded-xl">
+                ⚠️ Configurez d'abord le lien de vérification pour générer un lien public.
+              </p>
             )}
           </div>
         )}
