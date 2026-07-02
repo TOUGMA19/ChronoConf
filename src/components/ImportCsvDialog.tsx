@@ -51,7 +51,7 @@ function parseCSV(text: string): ParsedRow[] {
   };
 
   if (colMap.title === -1 || colMap.authors === -1) {
-    return [{ title: "", authors: "", moderator: "", sessionChair: "", abstract: "", category: "", duration: 20, type: DEFAULT_PRESENTATION_TYPES[0], status: "submitted", error: "Colonnes 'titre' et 'auteur(s)' requises" }];
+    return [{ code: "", title: "", authors: "", moderator: "", sessionChair: "", abstract: "", category: "", duration: 20, type: DEFAULT_PRESENTATION_TYPES[0], status: "submitted", error: "Colonnes 'titre' et 'auteur(s)' requises" }];
   }
 
   const rows: ParsedRow[] = [];
