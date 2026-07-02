@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { CheckCircle2, ShieldCheck, Loader2, Search, Save, RotateCcw, Lock } from "lucide-react";
+import { CheckCircle2, ShieldCheck, Loader2, Search, Save, RotateCcw, Lock, CalendarClock, ArrowRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { getTokenFromUrl } from "@/lib/verifyLink";
@@ -150,21 +150,31 @@ const Verify = () => {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border bg-card/60 backdrop-blur sticky top-0 z-10">
-        <div className="container mx-auto px-4 py-3 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2 font-display font-bold">
-            <ShieldCheck className="h-5 w-5 text-accent" />
-            <span>Vérification des informations</span>
+        <div className="container mx-auto px-4 py-3 flex items-center justify-between gap-3">
+          <Link to="/" className="flex items-center gap-2 font-display font-bold min-w-0">
+            <ShieldCheck className="h-5 w-5 text-accent shrink-0" />
+            <span className="truncate">Vérification des informations</span>
           </Link>
-          <div className="flex items-center gap-4">
-            {token && (
-              <Link to={`/programme?t=${encodeURIComponent(token)}`} className="text-xs text-muted-foreground hover:text-foreground">
-                Voir le programme →
-              </Link>
-            )}
+          <div className="flex items-center gap-3 shrink-0">
             {config?.contact && (
-              <a href={`mailto:${config.contact}`} className="text-xs text-muted-foreground hover:text-foreground">
+              <a href={`mailto:${config.contact}`} className="hidden sm:inline text-xs text-muted-foreground hover:text-foreground">
                 Contact : {config.contact}
               </a>
+            )}
+            {token && (
+              <Button
+                asChild
+                size="sm"
+                variant="outline"
+                className="rounded-full gap-1.5 border-accent/40 text-accent hover:bg-accent/10 hover:text-accent shadow-sm hover:shadow-md transition-all px-3 sm:px-4 group"
+              >
+                <Link to={`/programme?t=${encodeURIComponent(token)}`}>
+                  <CalendarClock className="h-3.5 w-3.5 shrink-0" />
+                  <span className="hidden sm:inline">Voir le programme</span>
+                  <span className="sm:hidden">Programme</span>
+                  <ArrowRight className="h-3.5 w-3.5 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                </Link>
+              </Button>
             )}
           </div>
         </div>
