@@ -5,7 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { signIn, signUp } from "@/lib/auth";
-import { ShieldCheck, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import logo from "@/assets/logoo.png";
 
 interface Props {
   onAuth: () => void;
@@ -44,10 +45,7 @@ const AuthPage = ({ onAuth }: Props) => {
       <Card className="w-full max-w-md">
         <CardHeader className="text-center space-y-2">
           <div className="flex items-center justify-center gap-2">
-            <ShieldCheck className="h-8 w-8 text-accent" />
-            <h1 className="text-2xl font-display font-bold">
-              <span className="text-accent">Chrono</span>Conf
-            </h1>
+            <img src={logo} alt="ChronoConf Logo" className="h-10 w-auto" />
           </div>
           <CardTitle className="font-display">
             {mode === "login" ? "Connexion" : "Créer un compte"}
