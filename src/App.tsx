@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { User } from "@supabase/supabase-js";
 import Conference from "./pages/Conference";
 import Verify from "./pages/Verify";
+import Programme from "./pages/Programme";
 import NotFound from "./pages/NotFound";
 import AuthPage from "./pages/AuthPage";
 import ProjectsPage from "./pages/ProjectsPage";
@@ -42,6 +43,9 @@ const AppRoutes = () => {
       <Routes>
         {/* Public verify page — accessible without auth */}
         <Route path="/verify" element={<Verify />} />
+
+        {/* Public programme page — accessible without auth, visible only once published */}
+        <Route path="/programme" element={<Programme />} />
 
         {/* Main app — requires auth */}
         <Route
