@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { Plus, Calendar, Trash2, Zap, FileText, Users, Clock, Upload, Download, UserCheck, X, GraduationCap, Check, AlertTriangle, BarChart3, ChevronDown, ChevronUp, Mic, Pencil, Sun, Moon, Tag, Award, ShieldCheck, LogOut, Save, Cloud } from "lucide-react";
+import { Plus, Calendar, Trash2, Zap, FileText, Users, Clock, Upload, Download, UserCheck, X, GraduationCap, Check, AlertTriangle, BarChart3, ChevronDown, ChevronUp, Mic, Pencil, Sun, Moon, Tag, Award, ShieldCheck, LogOut, Save, Cloud, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -14,6 +14,7 @@ import {
 } from "@/lib/conference";
 import OrganizersDialog from "@/components/OrganizersDialog";
 import VerificationConfigDialog from "@/components/VerificationConfigDialog";
+import PublishScheduleDialog from "@/components/PublishScheduleDialog";
 import AddArticleDialog from "@/components/AddArticleDialog";
 import ScheduleGrid from "@/components/ScheduleGrid";
 import ImportCsvDialog from "@/components/ImportCsvDialog";
@@ -124,6 +125,7 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
   const [chairsDialogOpen, setChairsDialogOpen] = useState(false);
   const [organizersDialogOpen, setOrganizersDialogOpen] = useState(false);
   const [verifyDialogOpen, setVerifyDialogOpen] = useState(false);
+  const [publishDialogOpen, setPublishDialogOpen] = useState(false);
   const [typesDialogOpen, setTypesDialogOpen] = useState(false);
   const [pdfOptionsOpen, setPdfOptionsOpen] = useState(false);
   const [pdfExportTarget, setPdfExportTarget] = useState<"linear" | "byRoom" | "docx">("linear");
@@ -513,6 +515,7 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
                   ))}
                 </div>
                 <Button size="sm" variant="outline" onClick={() => setSpecialSlotOpen(true)} className="gap-1"><Mic className="h-3.5 w-3.5" />Créneau spécial</Button>
+                <Button size="sm" className="gap-1 gradient-accent text-accent-foreground" onClick={() => setPublishDialogOpen(true)}><Send className="h-3.5 w-3.5" />Publier le programme</Button>
                 <Button size="sm" variant="outline" onClick={() => { setPdfExportTarget("linear"); setPdfOptionsOpen(true); }} className="gap-1"><Download className="h-3.5 w-3.5" />PDF</Button>
                 <Button size="sm" variant="outline" onClick={() => { const s = getSchedule(); if (!s) return; exportBookletPDF(s, getArticles(), customLogoDataUrl || undefined); toast.success("Livret PDF généré !"); }} className="gap-1"><FileText className="h-3.5 w-3.5" />Livret</Button>
                 <Button size="sm" variant="outline" onClick={() => { if (!schedule) return; const b = buildBadgesFromSchedule(schedule, articles); if (!b.length) { toast.error("Aucun intervenant"); return; } setBadgesConfigOpen(true); }} className="gap-1"><UserCheck className="h-3.5 w-3.5" />Badges</Button>
@@ -535,6 +538,7 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
       <PresentationTypesDialog open={typesDialogOpen} onOpenChange={setTypesDialogOpen} onChanged={() => setRefreshKey((k) => k + 1)} />
       <OrganizersDialog open={organizersDialogOpen} onOpenChange={setOrganizersDialogOpen} onChanged={() => setRefreshKey((k) => k + 1)} />
       <VerificationConfigDialog open={verifyDialogOpen} onOpenChange={setVerifyDialogOpen} conferenceId={projectSlug} onSynced={() => { setRefreshKey((k) => k + 1); cloudSave(true); }} />
+      <PublishScheduleDialog open={publishDialogOpen} onOpenChange={setPublishDialogOpen} conferenceId={projectSlug} schedule={schedule} articles={articles} organizers={organizersList} />
 
       {schedule && (
         <BadgesConfigDialog
