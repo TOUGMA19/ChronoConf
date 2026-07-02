@@ -136,7 +136,7 @@ const PublishScheduleDialog = ({ open, onOpenChange, conferenceId, schedule, art
           </div>
         ) : (
           <div className="space-y-6">
-            {/* Status Card */}
+            {/* Status */}
             <div className="p-4 rounded-xl border bg-card">
               <Badge 
                 variant="outline" 
@@ -166,15 +166,13 @@ const PublishScheduleDialog = ({ open, onOpenChange, conferenceId, schedule, art
             {schedule && status !== "draft" && (
               <div className="flex gap-3 p-4 rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800 text-amber-700 dark:text-amber-400">
                 <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
-                <p className="text-sm">
-                  Si vous modifiez ou régénérez le chronogramme, pensez à <strong>republier</strong>.
-                </p>
+                <p className="text-sm">Si vous modifiez le chronogramme, pensez à le republier.</p>
               </div>
             )}
 
-            {/* Bouton Vérifier mes informations - VERSION 1 */}
+            {/* Bouton "Vérifier mes informations" - Version améliorée */}
             {!token && (
-              <div className="pt-2">
+              <div className="pt-2 pb-2">
                 <Button 
                   asChild 
                   size="lg"
@@ -183,18 +181,17 @@ const PublishScheduleDialog = ({ open, onOpenChange, conferenceId, schedule, art
                   <a href="/verification" className="flex items-center justify-center gap-3">
                     Vérifier mes informations
                     <span className="group-hover:translate-x-1 transition-transform duration-300 text-lg">→</span>
-                    
-                    {/* Effet shine */}
+                    {/* Effet brillance */}
                     <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
                   </a>
                 </Button>
-                <p className="text-center text-xs text-muted-foreground mt-2">
-                  Nécessaire pour générer le lien public
+                <p className="text-center text-xs text-muted-foreground mt-3">
+                  Requis pour obtenir le lien public du programme
                 </p>
               </div>
             )}
 
-            {/* Action Buttons */}
+            {/* Boutons de publication */}
             <div className="grid gap-3">
               <Button
                 onClick={() => doPublish("provisional")}
@@ -231,28 +228,25 @@ const PublishScheduleDialog = ({ open, onOpenChange, conferenceId, schedule, art
               )}
             </div>
 
-            {/* Public Link */}
+            {/* Lien public */}
             {link && status !== "draft" && (
               <div className="pt-6 border-t border-border space-y-3">
-                <p className="font-medium text-foreground">Lien du programme public</p>
-                
+                <p className="font-medium">Lien du programme public</p>
                 <div className="flex gap-2">
                   <code className="flex-1 bg-muted px-4 py-3 rounded-xl text-sm font-mono break-all border">
                     {link}
                   </code>
                 </div>
-
                 <div className="flex gap-2">
                   <Button 
                     variant="outline" 
                     className="flex-1 gap-2"
                     onClick={() => {
-                      navigator.clipboard.writeText(link);
+                      navigator.clipboard.writeText(link!);
                       toast.success("Lien copié !");
                     }}
                   >
-                    <Copy className="h-4 w-4" />
-                    Copier
+                    <Copy className="h-4 w-4" /> Copier
                   </Button>
                   <Button variant="outline" asChild className="flex-1">
                     <a href={link} target="_blank" rel="noreferrer">
