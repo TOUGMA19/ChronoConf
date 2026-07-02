@@ -155,11 +155,18 @@ const Verify = () => {
             <ShieldCheck className="h-5 w-5 text-accent" />
             <span>Vérification des informations</span>
           </Link>
-          {config?.contact && (
-            <a href={`mailto:${config.contact}`} className="text-xs text-muted-foreground hover:text-foreground">
-              Contact : {config.contact}
-            </a>
-          )}
+          <div className="flex items-center gap-4">
+            {token && (
+              <Link to={`/programme?t=${encodeURIComponent(token)}`} className="text-xs text-muted-foreground hover:text-foreground">
+                Voir le programme →
+              </Link>
+            )}
+            {config?.contact && (
+              <a href={`mailto:${config.contact}`} className="text-xs text-muted-foreground hover:text-foreground">
+                Contact : {config.contact}
+              </a>
+            )}
+          </div>
         </div>
       </header>
 
