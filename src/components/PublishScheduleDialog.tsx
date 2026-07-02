@@ -94,7 +94,7 @@ const PublishScheduleDialog = ({ open, onOpenChange, conferenceId, schedule, art
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="w-[calc(100%-2rem)] rounded-xl sm:max-w-md sm:rounded-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Publier le programme</DialogTitle>
           <DialogDescription>
@@ -132,22 +132,22 @@ const PublishScheduleDialog = ({ open, onOpenChange, conferenceId, schedule, art
               </p>
             )}
 
-            <div className="grid grid-cols-1 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <Button
                 onClick={() => doPublish("provisional")}
                 disabled={!schedule || publishing !== null}
                 variant="outline"
-                className="justify-start gap-2 border-warning/40 text-warning hover:bg-warning/10"
+                className="justify-center sm:justify-start gap-2 border-warning/40 text-warning hover:bg-warning/10 whitespace-normal text-center sm:text-left h-auto py-2.5"
               >
-                {publishing === "provisional" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                {publishing === "provisional" ? <Loader2 className="h-4 w-4 animate-spin shrink-0" /> : <Send className="h-4 w-4 shrink-0" />}
                 Publier comme provisoire
               </Button>
               <Button
                 onClick={() => doPublish("final")}
                 disabled={!schedule || publishing !== null}
-                className="justify-start gap-2 gradient-accent text-accent-foreground"
+                className="justify-center sm:justify-start gap-2 gradient-accent text-accent-foreground whitespace-normal text-center sm:text-left h-auto py-2.5"
               >
-                {publishing === "final" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                {publishing === "final" ? <Loader2 className="h-4 w-4 animate-spin shrink-0" /> : <ShieldCheck className="h-4 w-4 shrink-0" />}
                 Publier comme définitif
               </Button>
               {status !== "draft" && (
@@ -155,9 +155,9 @@ const PublishScheduleDialog = ({ open, onOpenChange, conferenceId, schedule, art
                   onClick={doUnpublish}
                   disabled={publishing !== null}
                   variant="ghost"
-                  className="justify-start gap-2 text-destructive hover:text-destructive"
+                  className="justify-center sm:justify-start gap-2 text-destructive hover:text-destructive sm:col-span-2"
                 >
-                  {publishing === "draft" ? <Loader2 className="h-4 w-4 animate-spin" /> : <EyeOff className="h-4 w-4" />}
+                  {publishing === "draft" ? <Loader2 className="h-4 w-4 animate-spin shrink-0" /> : <EyeOff className="h-4 w-4 shrink-0" />}
                   Dépublier (masquer aux communicants)
                 </Button>
               )}
@@ -166,14 +166,21 @@ const PublishScheduleDialog = ({ open, onOpenChange, conferenceId, schedule, art
             {link && status !== "draft" && (
               <div className="pt-3 border-t border-border space-y-2">
                 <p className="text-sm font-medium text-foreground">Lien du programme public</p>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 text-xs bg-muted px-2 py-1.5 rounded truncate">{link}</code>
-                  <Button size="icon" variant="outline" onClick={() => { navigator.clipboard.writeText(link); toast.success("Lien copié !"); }}>
-                    <Copy className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button size="icon" variant="outline" asChild>
-                    <a href={link} target="_blank" rel="noreferrer"><ExternalLink className="h-3.5 w-3.5" /></a>
-                  </Button>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <code className="flex-1 min-w-0 text-xs bg-muted px-2 py-1.5 rounded truncate">{link}</code>
+                  <div className="flex items-center gap-2 justify-end sm:justify-start shrink-0">
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      className="shrink-0"
+                      onClick={() => { navigator.clipboard.writeText(link); toast.success("Lien copié !"); }}
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button size="icon" variant="outline" className="shrink-0" asChild>
+                      <a href={link} target="_blank" rel="noreferrer"><ExternalLink className="h-3.5 w-3.5" /></a>
+                    </Button>
+                  </div>
                 </div>
                 <p className="text-xs text-muted-foreground">C'est le même lien que celui utilisé pour la vérification des informations des intervenants.</p>
               </div>
