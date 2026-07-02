@@ -122,6 +122,33 @@ export type Database = {
           updated_at?: string
         }
       }
+      published_schedules: {
+        Row: {
+          id: string
+          conference_id: string
+          status: string
+          data: Json
+          published_at: string | null
+          published_by: string | null
+          updated_at: string
+          created_at: string
+        }
+        Insert: {
+          conference_id: string
+          status?: string
+          data?: Json
+          published_at?: string | null
+          published_by?: string | null
+          updated_at?: string
+        }
+        Update: {
+          status?: string
+          data?: Json
+          published_at?: string | null
+          published_by?: string | null
+          updated_at?: string
+        }
+      }
     }
     Views: { [_ in never]: never }
     Functions: { [_ in never]: never }
