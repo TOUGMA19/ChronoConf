@@ -27,11 +27,6 @@ export interface CertificateRecipient {
   communicationTitle?: string;
 }
 
-// ---------------------------------------------------------------------------
-// LAYOUT — each predefined template ships a list of editable blocks. The user
-// can move/resize/restyle every block without exception via the dialog.
-// ---------------------------------------------------------------------------
-
 export type BlockId =
   | "logo"
   | "heading"
@@ -57,39 +52,23 @@ export type BlockShape = "none" | "rect" | "rounded" | "ellipse" | "underline";
 export type BlockAlign = "left" | "center" | "right";
 
 export interface CertificateBlock {
-  /** Unique key inside the layout (allows multiple custom blocks). */
   key: string;
-  /** Type of block — drives default text & rendering. */
   id: BlockId;
-  /** Centered position (mm) of the block on A4 landscape (297×210). */
   x: number;
   y: number;
-  /** Width (mm). For text blocks, used as wrap width; for images, render width. */
   w: number;
-  /** Height (mm). For images/shapes; for text, the line slot height. */
   h: number;
-  /** Visible flag — hidden blocks are not drawn. */
   visible: boolean;
-  /** Optional override of the displayed text (for text blocks). */
   textOverride?: string;
-  /** Font size in pt (text only). */
   fontSize?: number;
-  /** Font weight (text only). */
   bold?: boolean;
   italic?: boolean;
-  /** Horizontal alignment of text relative to (x,y). */
   align?: BlockAlign;
-  /** Color override [r,g,b] 0-255. Defaults to template primary/text per block. */
   color?: [number, number, number];
-  /** Background shape behind block. */
   shape?: BlockShape;
-  /** Shape fill color [r,g,b]. */
   shapeFill?: [number, number, number];
-  /** Shape stroke color [r,g,b]. */
   shapeStroke?: [number, number, number];
-  /** Border radius for rounded shapes (mm). */
   shapeRadius?: number;
-  /** Rotation in degrees. */
   rotate?: number;
 }
 
@@ -103,16 +82,13 @@ export interface CertificateOptions {
   signatoryLine?: string;
   signatoryName?: string;
   logoDataUrl?: string;
-  /** Default signature image (used by {{signature}} when no indexed map matches). */
   signatureDataUrl?: string;
-  /** Multiple signatures keyed by index — used by {{signature1}}, {{signature2}}, ... */
   signatureImages?: Record<number, string>;
   showQrCode?: boolean;
   qrBaseUrl?: string;
   showCommunicationTitle?: boolean;
   showRole?: boolean;
   templateId: CertificateTemplateId;
-  /** Optional layout override — if provided, used instead of the template default. */
   layout?: CertificateLayout;
 }
 
@@ -225,7 +201,6 @@ export function defaultLayout(): CertificateLayout {
   ];
 }
 
-/** Create a fresh custom block at center of page. */
 export function createCustomBlock(text = "Texte personnalisé"): CertificateBlock {
   return {
     key: `custom-${Math.random().toString(36).slice(2, 9)}`,
@@ -245,23 +220,36 @@ function splitAuthors(raw: string): string[] {
   return raw.split(/[,;&\n]| et | and /i).map((s) => s.trim()).filter((s) => s.length > 1);
 }
 
+/**
+ * Construit la liste des destinataires à partir du programme.
+ *
+ * IMPORTANT : la déduplication se fait par (nom + rôle + titre de communication).
+ * Ainsi, un même auteur ayant plusieurs communications reçoit UNE attestation
+ * par communication. Les rôles transverses (modérateur / président) sont
+ * dédupliqués par (nom + rôle) car ils ne sont pas liés à une communication.
+ */
 export function buildRecipientsFromSchedule(
   schedule: ConferenceSchedule,
   articles: Article[],
 ): CertificateRecipient[] {
   const articleMap = new Map(articles.map((a) => [a.id, a]));
   const byKey = new Map<string, CertificateRecipient>();
-  const priority: Record<CertificateRole, number> = { chair: 3, moderator: 2, speaker: 1, organizer: 1, other: 0, participant: 0 };
+
+  const normalize = (s: string) => s.trim().toLowerCase();
+  const keyOf = (rec: CertificateRecipient) =>
+    `${normalize(rec.name)}|${rec.role}|${normalize(rec.communicationTitle ?? "")}`;
 
   const upsert = (rec: CertificateRecipient) => {
-    const k = rec.name.trim();
-    if (!k) return;
+    const name = rec.name.trim();
+    if (!name) return;
+    const clean: CertificateRecipient = { ...rec, name };
+    const k = keyOf(clean);
     const existing = byKey.get(k);
-    if (!existing) { byKey.set(k, rec); return; }
+    if (!existing) { byKey.set(k, clean); return; }
+    // Même clé : compléter les champs manquants sans écraser.
     const merged: CertificateRecipient = { ...existing };
-    if (priority[rec.role] > priority[existing.role]) merged.role = rec.role;
-    if (!merged.affiliation && rec.affiliation) merged.affiliation = rec.affiliation;
-    if (!merged.communicationTitle && rec.communicationTitle) merged.communicationTitle = rec.communicationTitle;
+    if (!merged.affiliation && clean.affiliation) merged.affiliation = clean.affiliation;
+    if (!merged.communicationTitle && clean.communicationTitle) merged.communicationTitle = clean.communicationTitle;
     byKey.set(k, merged);
   };
 
@@ -271,10 +259,16 @@ export function buildRecipientsFromSchedule(
     splitAuthors(a.authors).forEach((author) =>
       upsert({ name: author, role: "speaker", affiliation: a.category, communicationTitle: a.title }),
     );
+    // Modérateur / président : une attestation par personne (rôle transverse).
     if (a.moderator) upsert({ name: a.moderator, role: "moderator", affiliation: a.category });
     if (a.sessionChair) upsert({ name: a.sessionChair, role: "chair", affiliation: a.category });
   }
-  return [...byKey.values()].sort((a, b) => a.name.localeCompare(b.name, "fr"));
+
+  return [...byKey.values()].sort((x, y) => {
+    const byName = x.name.localeCompare(y.name, "fr");
+    if (byName !== 0) return byName;
+    return (x.communicationTitle ?? "").localeCompare(y.communicationTitle ?? "", "fr");
+  });
 }
 
 // ===========================================================================
@@ -331,7 +325,6 @@ function drawTemplateChrome(doc: jsPDF, tpl: CertificateTemplate, pageW: number,
   }
 }
 
-/** Compute per-block displayed text for a recipient. */
 function blockTextFor(
   id: BlockId,
   rec: CertificateRecipient,
@@ -397,7 +390,6 @@ async function drawCertificatePage(
   for (const b of layout) {
     if (!b.visible) continue;
 
-    // Skip blocks tied to disabled options
     if (b.id === "qr" && !opts.showQrCode) continue;
     if (b.id === "qrLabel" && !opts.showQrCode) continue;
     if (b.id === "logo" && !opts.logoDataUrl) continue;
@@ -405,7 +397,6 @@ async function drawCertificatePage(
 
     drawShape(doc, b, tpl);
 
-    // Image blocks
     if (b.id === "logo" && opts.logoDataUrl) {
       try {
         const fmt = detectImageFormat(opts.logoDataUrl);
@@ -423,18 +414,17 @@ async function drawCertificatePage(
     if (b.id === "qr" && opts.showQrCode) {
       try {
         const payload = (opts.qrBaseUrl || "").trim()
-          ? opts.qrBaseUrl!.replace(/\/+$/, "") + "/" + slugify(rec.name)
-          : `${opts.conferenceName} | ${rec.name} | ${CERT_ROLE_LABEL[rec.role]}`;
+          ? opts.qrBaseUrl!.replace(/\/+$/, "") + "/" + slugify(rec.name) + (rec.communicationTitle ? "-" + slugify(rec.communicationTitle) : "")
+          : `${opts.conferenceName} | ${rec.name} | ${CERT_ROLE_LABEL[rec.role]}${rec.communicationTitle ? " | " + rec.communicationTitle : ""}`;
         const qr = await buildQrDataUrl(payload, tpl.primary);
         doc.addImage(qr, "PNG", b.x - b.w / 2, b.y - b.h / 2, b.w, b.h, undefined, "FAST");
       } catch { /* ignore */ }
       continue;
     }
 
-    // Text blocks
     const text = b.textOverride ?? blockTextFor(b.id, rec, opts);
     if (text == null || text === "") continue;
-    if (b.id === "separator" || b.id === "signatureLine") continue; // shape only
+    if (b.id === "separator" || b.id === "signatureLine") continue;
 
     const isHeading = ["heading", "subtitle", "name"].includes(b.id);
     const family = isHeading ? tpl.headingFont : tpl.bodyFont;
@@ -476,23 +466,9 @@ export async function exportCertificatesPDF(
 }
 
 // ===========================================================================
-// PPTX TEMPLATE FILLER (placeholder substitution + {{codeqr}} image)
+// PPTX TEMPLATE FILLER
 // ===========================================================================
 
-/**
- * Supported placeholders (case-insensitive):
- *   {{nom}} {{name}}        — recipient name
- *   {{role}}                — role label
- *   {{affiliation}}         — affiliation
- *   {{titre}} {{title}}     — communication title
- *   {{conference}}          — conference name
- *   {{date}}                — event date
- *   {{lieu}} {{location}}   — event location
- *   {{organisateur}}        — organizer
- *   {{signataire}}          — signatory name
- *   {{codeqr}} {{qrcode}}   — QR code image (replaces the text-frame containing
- *                             the placeholder with an image of the QR)
- */
 export async function exportCertificatesPPTX(
   templateFile: File | ArrayBuffer,
   recipients: CertificateRecipient[],
@@ -512,8 +488,11 @@ export async function exportCertificatesPPTX(
 
   const tpl = getCertificateTemplate(opts.templateId);
   const outZip = new JSZip();
+  // Suivi des noms de fichiers déjà utilisés pour éviter toute collision.
+  const usedNames = new Set<string>();
 
-  for (const rec of recipients) {
+  for (let recIdx = 0; recIdx < recipients.length; recIdx++) {
+    const rec = recipients[recIdx];
     const zip = new PizZip(baseZipBytes);
     const replacements: Record<string, string> = {
       nom: rec.name, name: rec.name,
@@ -528,10 +507,9 @@ export async function exportCertificatesPPTX(
       signataire: opts.signatoryName || "",
     };
 
-    // Build QR image (PNG bytes) for this recipient — used by {{codeqr}}.
     const qrPayload = (opts.qrBaseUrl || "").trim()
-      ? opts.qrBaseUrl!.replace(/\/+$/, "") + "/" + slugify(rec.name)
-      : `${opts.conferenceName} | ${rec.name} | ${CERT_ROLE_LABEL[rec.role]}`;
+      ? opts.qrBaseUrl!.replace(/\/+$/, "") + "/" + slugify(rec.name) + (rec.communicationTitle ? "-" + slugify(rec.communicationTitle) : "")
+      : `${opts.conferenceName} | ${rec.name} | ${CERT_ROLE_LABEL[rec.role]}${rec.communicationTitle ? " | " + rec.communicationTitle : ""}`;
     const qrDataUrl = await buildQrDataUrl(qrPayload, tpl.primary);
     const qrPngBytes = base64ToBytes(qrDataUrl.split(",")[1] || "");
 
@@ -539,7 +517,6 @@ export async function exportCertificatesPPTX(
       /^ppt\/slides\/slide\d+\.xml$/.test(p),
     );
 
-    // Build a map of signature index → bytes/ext. Index 0 == default {{signature}}.
     type SigEntry = { bytes: Uint8Array; ext: "png" | "jpg" };
     const sigMap = new Map<number, SigEntry>();
     const parseSig = (dataUrl: string | undefined): SigEntry | null => {
@@ -567,13 +544,11 @@ export async function exportCertificatesPPTX(
       if (!file) continue;
       let xml = file.asText();
 
-      // Pass 1: text replacements (skip image placeholders)
       xml = applyPlaceholders(xml, replacements);
 
-      // Pass 2: {{codeqr}} → image
       if (/\{\{\s*(?:codeqr|qrcode|qr)\s*\}\}/i.test(xml)) {
         if (!qrImagePath) {
-          qrImagePath = `ppt/media/qr_${slugify(rec.name) || "rec"}.png`;
+          qrImagePath = `ppt/media/qr_${slugify(rec.name) || "rec"}_${recIdx}.png`;
           zip.file(qrImagePath, qrPngBytes, { binary: true });
         }
         const rid = ensureSlideImageRel(zip, slidePath, qrImagePath);
@@ -581,25 +556,21 @@ export async function exportCertificatesPPTX(
         ensureImageContentType(zip, "png");
       }
 
-      // Pass 3: {{signature}} and {{signatureN}} → signature images.
-      // Find every distinct signature placeholder present in the slide (with index).
       const sigTagRegex = /\{\{\s*(?:signature|signatureimage)\s*(\d*)\s*\}\}/gi;
       const indices = new Set<number>();
       for (const m of xml.matchAll(sigTagRegex)) {
         indices.add(m[1] ? parseInt(m[1], 10) : 0);
       }
       for (const idx of indices) {
-        // Resolve which uploaded signature to use. Fallback chain: idx → default (0).
         const entry = sigMap.get(idx) ?? sigMap.get(0);
         if (!entry) continue;
         let imgPath = sigImagePaths.get(idx);
         if (!imgPath) {
-          imgPath = `ppt/media/sig${idx}_${slugify(rec.name) || "rec"}.${entry.ext}`;
+          imgPath = `ppt/media/sig${idx}_${slugify(rec.name) || "rec"}_${recIdx}.${entry.ext}`;
           zip.file(imgPath, entry.bytes, { binary: true });
           sigImagePaths.set(idx, imgPath);
         }
         const rid = ensureSlideImageRel(zip, slidePath, imgPath);
-        // Match exactly this index (use \\b-ish boundary by requiring no other digit).
         const idxPattern = idx === 0
           ? /\{\{\s*(?:signature|signatureimage)\s*\}\}/i
           : new RegExp(`\\{\\{\\s*(?:signature|signatureimage)\\s*${idx}\\s*\\}\\}`, "i");
@@ -611,7 +582,18 @@ export async function exportCertificatesPPTX(
     }
 
     const out = zip.generate({ type: "uint8array", compression: "DEFLATE" });
-    outZip.file(`attestation-${slugify(rec.name) || "destinataire"}.pptx`, out);
+
+    // Nom de fichier : nom + titre de communication (ou index si collision).
+    const baseSlug = slugify(rec.name) || "destinataire";
+    const titleSlug = rec.communicationTitle ? slugify(rec.communicationTitle) : "";
+    let fileName = titleSlug
+      ? `attestation-${baseSlug}-${titleSlug}.pptx`
+      : `attestation-${baseSlug}.pptx`;
+    if (usedNames.has(fileName)) {
+      fileName = `attestation-${baseSlug}-${recIdx + 1}${titleSlug ? "-" + titleSlug : ""}.pptx`;
+    }
+    usedNames.add(fileName);
+    outZip.file(fileName, out);
   }
 
   const blob = await outZip.generateAsync({ type: "blob" });
@@ -623,7 +605,6 @@ function applyPlaceholders(xml: string, vars: Record<string, string>): string {
   return xml.replace(tagSafe, (full, inner) => {
     const key = String(inner).replace(/<[^>]+>/g, "").trim().toLowerCase();
     if (["codeqr","qrcode","qr"].includes(key)) return full;
-    // Skip any signature placeholder (with or without index)
     if (/^(?:signature|signatureimage)\d*$/.test(key)) return full;
     if (key in vars) return escapeXml(vars[key]);
     return full;
@@ -643,9 +624,8 @@ function base64ToBytes(b64: string): Uint8Array {
   return out;
 }
 
-/** Add image relationship to slide rels, return the rId. Idempotent per (slide, target). */
 function ensureSlideQrRel(zip: PizZip, slidePath: string, imagePath: string): string {
-  const slideName = slidePath.split("/").pop()!; // slide1.xml
+  const slideName = slidePath.split("/").pop()!;
   const relsPath = `ppt/slides/_rels/${slideName}.rels`;
   const target = "../media/" + imagePath.split("/").pop();
 
@@ -654,13 +634,11 @@ function ensureSlideQrRel(zip: PizZip, slidePath: string, imagePath: string): st
     relsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`;
   }
 
-  // already linked?
   const existing = relsXml.match(new RegExp(`<Relationship[^/]*Target="${escapeRegExp(target)}"[^/]*Id="(rId\\d+)"`));
   const existing2 = relsXml.match(new RegExp(`<Relationship[^/]*Id="(rId\\d+)"[^/]*Target="${escapeRegExp(target)}"`));
   if (existing) return existing[1];
   if (existing2) return existing2[1];
 
-  // pick next rId
   const ids = [...relsXml.matchAll(/Id="rId(\d+)"/g)].map((m) => parseInt(m[1], 10));
   const next = (ids.length ? Math.max(...ids) : 0) + 1;
   const rid = `rId${next}`;
@@ -673,8 +651,6 @@ function ensureSlideQrRel(zip: PizZip, slidePath: string, imagePath: string): st
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
-
-function ensurePngContentType(zip: PizZip) { ensureImageContentType(zip, "png"); }
 
 function ensureImageContentType(zip: PizZip, ext: "png" | "jpeg") {
   const path = "[Content_Types].xml";
@@ -690,7 +666,6 @@ function ensureImageContentType(zip: PizZip, ext: "png" | "jpeg") {
 
 const ensureSlideImageRel = ensureSlideQrRel;
 
-/** Replace any <p:sp> containing matchRegex (in flattened text) with a <p:pic> at same xfrm. */
 function replaceImagePlaceholders(xml: string, rid: string, matchRegex: RegExp, name: string): string {
   const spRegex = /<p:sp\b[\s\S]*?<\/p:sp>/g;
   return xml.replace(spRegex, (sp) => {
