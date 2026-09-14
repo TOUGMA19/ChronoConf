@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import {
-  getArticles, getSchedule, deleteArticle, generateScheduleLocally, getLastOverflowReport,
+  getArticles, getSchedule, deleteArticle, deleteAllArticles, generateScheduleLocally, getLastOverflowReport,
   clearSchedule, clearAllData, getCategories, addCategory, removeCategory, clearCategories,
   getModerators, addModerator, addModerators, removeModerator, clearModerators,
   getSessionChairs, addSessionChair, addSessionChairs, removeSessionChair, clearSessionChairs,
@@ -15,6 +15,10 @@ import {
 import OrganizersDialog from "@/components/OrganizersDialog";
 import VerificationConfigDialog from "@/components/VerificationConfigDialog";
 import PublishScheduleDialog from "@/components/PublishScheduleDialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import AddArticleDialog from "@/components/AddArticleDialog";
 import ScheduleGrid from "@/components/ScheduleGrid";
 import ImportCsvDialog from "@/components/ImportCsvDialog";
@@ -333,6 +337,30 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
             <Button variant="outline" onClick={() => setImportOpen(true)} className="gap-2">
               <Upload className="h-4 w-4" /><span className="hidden sm:inline">Importer CSV</span>
             </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" className="gap-2 text-destructive hover:text-destructive" disabled={articles.length === 0}>
+                  <Trash2 className="h-4 w-4" /><span className="hidden sm:inline">Tout supprimer ({articles.length})</span>
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Supprimer tous les articles ?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Les {articles.length} article{articles.length > 1 ? "s" : ""} soumis seront définitivement supprimés (les catégories, modérateurs, présidents et le chronogramme ne sont pas touchés). Utile pour repartir d'une base propre avant un réimport CSV. Cette action est irréversible.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Annuler</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    onClick={() => { deleteAllArticles(); setRefreshKey((k) => k + 1); toast.success("Tous les articles ont été supprimés"); }}
+                  >
+                    Supprimer
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
             <Button onClick={() => setDialogOpen(true)} className="gradient-accent text-accent-foreground gap-2">
               <Plus className="h-4 w-4" /><span className="hidden sm:inline">Soumettre un article</span>
             </Button>
