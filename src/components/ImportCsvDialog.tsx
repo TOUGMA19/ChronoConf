@@ -30,12 +30,64 @@ interface ParsedRow {
 const LEGACY_TYPE_MAP: Record<string, string> = { oral: "présentielle", poster: "en ligne" };
 const VALID_STATUSES: string[] = ["submitted", "accepted", "rejected"];
 
-function parseCSV(text: string): ParsedRow[] {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim());
-  if (lines.length < 2) return [];
+// Quote-aware CSV/TSV tokenizer: respects RFC4180-style quoting so a
+// separator or a newline inside a quoted field (e.g. a résumé containing
+// ";") no longer shifts the columns that follow it.
+function tokenizeCSV(text: string, sep: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let inQuotes = false;
 
-  const sep = lines[0].includes(";") ? ";" : ",";
-  const headers = lines[0].split(sep).map((h) => h.trim().toLowerCase().replace(/"/g, ""));
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') {
+          field += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += c;
+      }
+      continue;
+    }
+    if (c === '"') {
+      inQuotes = true;
+    } else if (c === sep) {
+      row.push(field);
+      field = "";
+    } else if (c === "\r") {
+      // ignore, \n (or end of text) closes the row
+    } else if (c === "\n") {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+    } else {
+      field += c;
+    }
+  }
+  // flush trailing field/row if the file doesn't end with a newline
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows.filter((r) => r.some((f) => f.trim().length > 0));
+}
+
+function parseCSV(text: string): ParsedRow[] {
+  // Sniff the separator from the raw header line (before quote-aware parsing)
+  const firstLineEnd = text.search(/\r?\n/);
+  const firstLine = firstLineEnd === -1 ? text : text.slice(0, firstLineEnd);
+  const sep = firstLine.includes(";") ? ";" : ",";
+
+  const table = tokenizeCSV(text, sep);
+  if (table.length < 2) return [];
+
+  const headers = table[0].map((h) => h.trim().toLowerCase().replace(/"/g, ""));
 
   const colMap = {
     code: headers.findIndex((h) => ["code", "id", "identifiant", "reference", "référence", "ref", "numero", "numéro", "num"].includes(h)),
@@ -55,8 +107,8 @@ function parseCSV(text: string): ParsedRow[] {
   }
 
   const rows: ParsedRow[] = [];
-  for (let i = 1; i < lines.length; i++) {
-    const cols = lines[i].split(sep).map((c) => c.trim().replace(/^"|"$/g, ""));
+  for (let i = 1; i < table.length; i++) {
+    const cols = table[i].map((c) => c.trim());
     const code = colMap.code >= 0 ? (cols[colMap.code] || "").trim() : "";
     const title = cols[colMap.title] || "";
     const authors = cols[colMap.authors] || "";
