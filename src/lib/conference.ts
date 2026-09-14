@@ -388,6 +388,11 @@ export function deleteArticle(id: string): void {
   saveToStorage();
 }
 
+export function deleteAllArticles(): void {
+  articles = [];
+  saveToStorage();
+}
+
 export function updateArticle(id: string, data: Partial<Article>): void {
   if (data.type && !presentationTypes.includes(data.type)) {
     presentationTypes = [...presentationTypes, data.type];
