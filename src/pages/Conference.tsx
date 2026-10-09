@@ -39,6 +39,7 @@ import { detectConflicts, Conflict, CONFLICT_LABEL } from "@/lib/conflicts";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import logoImg from "@/assets/logoo.png";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -164,7 +165,7 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
   const [moderatorThemeMap, setModeratorThemeMap] = useState<Record<string, string[]>>({});
   const [chairThemeMap, setChairThemeMap] = useState<Record<string, string[]>>({});
   const [chairRoomMap, setChairRoomMap] = useState<Record<string, string[]>>({});
-  const [themeRoomMap, setThemeRoomMap] = useState<Record<string, string>>({});
+  const [themeRoomMap, setThemeRoomMap] = useState<Record<string, string[]>>({});
   const [resetModerators, setResetModerators] = useState(true);
   const [resetChairs, setResetChairs] = useState(true);
 
@@ -676,18 +677,31 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
                 {categoriesList.map((c) => (
                   <div key={c} className="flex items-center justify-between px-3 py-2 rounded-lg bg-muted/50">
                     <span className="text-sm text-foreground flex-1 truncate">{c}</span>
-                    <Select
-                      value={themeRoomMap[c] || "auto"}
-                      onValueChange={(v) => setThemeRoomMap((prev) => { const next = { ...prev }; if (v === "auto") delete next[c]; else next[c] = v; return next; })}
-                    >
-                      <SelectTrigger className="h-7 w-36 mx-2 text-xs"><SelectValue placeholder="Salle" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="auto">Salle automatique</SelectItem>
-                        {confRooms.split(",").map((r) => r.trim()).filter(Boolean).map((r) => (
-                          <SelectItem key={r} value={r}>{r}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" size="sm" className="h-7 mx-2 text-xs max-w-[11rem] truncate">
+                          {(themeRoomMap[c] || []).length === 0 ? "Salle automatique" : (themeRoomMap[c] || []).join(", ")}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-52 p-2 space-y-1" align="end">
+                        <p className="text-xs text-muted-foreground px-1">Salles pour cette thématique (plusieurs possibles)</p>
+                        {confRooms.split(",").map((r) => r.trim()).filter(Boolean).map((r) => {
+                          const selected = (themeRoomMap[c] || []).includes(r);
+                          return (
+                            <label key={r} className="flex items-center gap-2 px-1 py-1 rounded hover:bg-muted/50 cursor-pointer text-sm">
+                              <Checkbox checked={selected} onCheckedChange={() => setThemeRoomMap((prev) => {
+                                const cur = prev[c] || [];
+                                const nextList = selected ? cur.filter((x) => x !== r) : [...cur, r];
+                                const next = { ...prev };
+                                if (nextList.length === 0) delete next[c]; else next[c] = nextList;
+                                return next;
+                              })} />
+                              {r}
+                            </label>
+                          );
+                        })}
+                      </PopoverContent>
+                    </Popover>
                     <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => { removeCategory(c); setThemeRoomMap((prev) => { const next = { ...prev }; delete next[c]; return next; }); setRefreshKey((k) => k + 1); }}><X className="h-3.5 w-3.5" /></Button>
                   </div>
                 ))}
