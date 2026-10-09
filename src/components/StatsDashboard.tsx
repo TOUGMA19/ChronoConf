@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { Article, ConferenceSchedule } from "@/lib/conference";
+import { getThemeColor, rgbCss } from "@/lib/themeColors";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 
 interface StatsDashboardProps {
@@ -78,8 +79,8 @@ const StatsDashboard = ({ articles, schedule }: StatsDashboardProps) => {
               <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 10 }} />
               <Tooltip />
               <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                {byCategory.map((_, i) => (
-                  <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                {byCategory.map((c, i) => (
+                  <Cell key={i} fill={rgbCss(getThemeColor(c.name, byCategory.map((x) => x.name)))} />
                 ))}
               </Bar>
             </BarChart>
