@@ -1,6 +1,7 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { ConferenceSchedule, Article } from "./conference";
+import { getThemeColor, lightenRgb } from "./themeColors";
 
 export interface PdfExportOptions {
   columns: {
@@ -34,49 +35,13 @@ export const DEFAULT_PDF_OPTIONS: PdfExportOptions = {
   showLogo: true,
 };
 
-// Predefined color palette for dynamic category assignment
-// 25 maximally distinct colors — no two should look similar in the PDF
-const COLOR_PALETTE: [number, number, number][] = [
-  [59, 130, 246],   // Blue
-  [239, 68, 68],    // Red
-  [34, 197, 94],    // Green
-  [249, 115, 22],   // Orange
-  [168, 85, 247],   // Purple
-  [234, 179, 8],    // Yellow
-  [20, 184, 166],   // Teal
-  [236, 72, 153],   // Pink
-  [99, 102, 241],   // Indigo
-  [132, 204, 22],   // Lime
-  [6, 182, 212],    // Cyan
-  [244, 63, 94],    // Rose
-  [245, 158, 11],   // Amber
-  [107, 114, 128],  // Slate
-  [217, 70, 239],   // Fuchsia
-  [14, 165, 233],   // Sky
-  [190, 18, 60],    // Crimson
-  [5, 150, 105],    // Emerald
-  [180, 83, 9],     // Brown
-  [79, 70, 229],    // Violet
-  [251, 146, 60],   // Light orange
-  [21, 128, 61],    // Dark green
-  [147, 51, 234],   // Vivid purple
-  [225, 29, 72],    // Bright red
-  [56, 189, 248],   // Light blue
-];
-
-function lighten(color: [number, number, number], factor = 0.82): [number, number, number] {
-  return [
-    Math.min(255, color[0] + Math.round((255 - color[0]) * factor)),
-    Math.min(255, color[1] + Math.round((255 - color[1]) * factor)),
-    Math.min(255, color[2] + Math.round((255 - color[2]) * factor)),
-  ];
-}
+const lighten = lightenRgb;
 
 function buildCategoryColors(articles: Article[]): Record<string, [number, number, number]> {
   const uniqueCategories = [...new Set(articles.map((a) => a.category).filter(Boolean))];
   const map: Record<string, [number, number, number]> = {};
-  uniqueCategories.forEach((cat, i) => {
-    map[cat] = COLOR_PALETTE[i % COLOR_PALETTE.length];
+  uniqueCategories.forEach((cat) => {
+    map[cat] = getThemeColor(cat, uniqueCategories);
   });
   return map;
 }
