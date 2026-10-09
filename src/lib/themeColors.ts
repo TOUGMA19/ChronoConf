@@ -54,15 +54,47 @@ export function lightenRgb(color: RGB, factor = 0.82): RGB {
 
 export const rgbCss = (c: RGB): string => `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
 
+// --- Ordre « le plus distinct d'abord » -----------------------------------------
+// On trie la palette par échantillonnage du point le plus éloigné (distance CIELAB) :
+// la couleur n°k est toujours celle qui ressemble le moins aux k-1 précédentes.
+// Ainsi, avec N thématiques, les N couleurs utilisées sont les N plus différentes entre elles.
+function toLab([r, g, b]: RGB): [number, number, number] {
+  const lin = (v: number) => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+  const R = lin(r), G = lin(g), B = lin(b);
+  const X = (0.4124 * R + 0.3576 * G + 0.1805 * B) / 0.95047;
+  const Y = 0.2126 * R + 0.7152 * G + 0.0722 * B;
+  const Z = (0.0193 * R + 0.1192 * G + 0.9505 * B) / 1.08883;
+  const f = (t: number) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+  return [116 * f(Y) - 16, 500 * (f(X) - f(Y)), 200 * (f(Y) - f(Z))];
+}
+export function colorDistance(a: RGB, b: RGB): number {
+  const [l1, a1, b1] = toLab(a), [l2, a2, b2] = toLab(b);
+  return Math.hypot(l1 - l2, a1 - a2, b1 - b2);
+}
+function orderByDistinctness(palette: RGB[]): RGB[] {
+  const remaining = [...palette];
+  const ordered: RGB[] = [remaining.shift()!];
+  while (remaining.length) {
+    let best = 0, bestScore = -1;
+    remaining.forEach((c, i) => {
+      const score = Math.min(...ordered.map((o) => colorDistance(c, o)));
+      if (score > bestScore) { bestScore = score; best = i; }
+    });
+    ordered.push(remaining.splice(best, 1)[0]);
+  }
+  return ordered;
+}
+export const DISTINCT_PALETTE: RGB[] = orderByDistinctness(THEME_PALETTE);
+
 /**
- * Couleur d'une thématique : sa position dans la liste des thématiques définies
- * détermine la couleur (stable). Les thématiques absentes de la liste (ex. importées)
- * reçoivent les couleurs suivantes, dans l'ordre fourni par `extra`.
+ * Couleur d'une thématique : sa position dans la liste des thématiques détermine la couleur
+ * (stable, sans doublon jusqu'à 36 thématiques, et les plus différentes possibles entre elles).
+ * Les thématiques absentes de la liste (ex. importées) suivent, dans l'ordre fourni par `extra`.
  */
 export function getThemeColor(category: string, extra: string[] = []): RGB {
   const ordered = [...getCategories()];
   for (const c of extra) if (c && !ordered.includes(c)) ordered.push(c);
   let i = ordered.indexOf(category);
   if (i < 0) i = ordered.length;
-  return THEME_PALETTE[i % THEME_PALETTE.length];
+  return DISTINCT_PALETTE[i % DISTINCT_PALETTE.length];
 }
