@@ -658,7 +658,7 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
         <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Gestion des thématiques / axes</DialogTitle>
-            <DialogDescription>Définissez les thématiques de votre conférence.</DialogDescription>
+            <DialogDescription>Définissez les thématiques de votre conférence et attribuez à chacune une salle dédiée (les salles sont celles définies dans la configuration).</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
@@ -675,8 +675,20 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
               <div className="space-y-1 max-h-60 overflow-y-auto">
                 {categoriesList.map((c) => (
                   <div key={c} className="flex items-center justify-between px-3 py-2 rounded-lg bg-muted/50">
-                    <span className="text-sm text-foreground">{c}</span>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => { removeCategory(c); setRefreshKey((k) => k + 1); }}><X className="h-3.5 w-3.5" /></Button>
+                    <span className="text-sm text-foreground flex-1 truncate">{c}</span>
+                    <Select
+                      value={themeRoomMap[c] || "auto"}
+                      onValueChange={(v) => setThemeRoomMap((prev) => { const next = { ...prev }; if (v === "auto") delete next[c]; else next[c] = v; return next; })}
+                    >
+                      <SelectTrigger className="h-7 w-36 mx-2 text-xs"><SelectValue placeholder="Salle" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto">Salle automatique</SelectItem>
+                        {confRooms.split(",").map((r) => r.trim()).filter(Boolean).map((r) => (
+                          <SelectItem key={r} value={r}>{r}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => { removeCategory(c); setThemeRoomMap((prev) => { const next = { ...prev }; delete next[c]; return next; }); setRefreshKey((k) => k + 1); }}><X className="h-3.5 w-3.5" /></Button>
                   </div>
                 ))}
               </div>
