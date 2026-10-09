@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo } from "react";
 import { ConferenceSchedule, Article, SpecialSlot, moveSlot, swapSlots, getSlotSnapshot, restoreSlotSnapshot, removeSpecialSlot, updateSpecialSlot, ScheduleSlot, MoveResult, getDayHours } from "@/lib/conference";
+import { getThemeColor, lightenRgb, rgbCss } from "@/lib/themeColors";
 import { cn } from "@/lib/utils";
 import { GripVertical, ArrowLeftRight, MousePointerClick, Undo2, X, Star, Flag, Award, Coffee, Mic, MoreHorizontal, Pencil } from "lucide-react";
 import { toast } from "sonner";
@@ -52,16 +53,8 @@ const SPECIAL_SLOT_COLORS: Record<string, { bg: string; border: string; text: st
   other: { bg: "hsl(0, 0%, 25%)", border: "hsl(0, 0%, 50%)", text: "hsl(0, 0%, 90%)" },
 };
 
-const getCategoryColor = (category: string): string => {
-  let hash = 0;
-  for (let i = 0; i < category.length; i++) hash = category.charCodeAt(i) + ((hash << 5) - hash);
-  return `hsl(${Math.abs(hash) % 360}, 55%, 92%)`;
-};
-const getCategoryBorderColor = (category: string): string => {
-  let hash = 0;
-  for (let i = 0; i < category.length; i++) hash = category.charCodeAt(i) + ((hash << 5) - hash);
-  return `hsl(${Math.abs(hash) % 360}, 55%, 65%)`;
-};
+const getCategoryColor = (category: string): string => rgbCss(lightenRgb(getThemeColor(category), 0.82));
+const getCategoryBorderColor = (category: string): string => rgbCss(getThemeColor(category));
 
 function parseTime(t: string): number {
   const [h, m] = t.split(":").map(Number);
