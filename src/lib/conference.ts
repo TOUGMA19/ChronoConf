@@ -609,7 +609,7 @@ function fmt(minutes: number): string {
 // Improved schedule generation handling 100+ articles
 export function generateScheduleLocally(
   conferenceArticles: Article[],
-  config: { name: string; days: number; rooms: string[]; startHour: number; endHour: number; dayHours?: DayHours[]; breakMinutes?: number; lunchStart?: string; lunchEnd?: string; moderatorsList?: string[]; moderatorThemeMap?: Record<string, string[]>; resetModerators?: boolean; chairsList?: string[]; chairThemeMap?: Record<string, string[]>; chairRoomMap?: Record<string, string[]>; resetChairs?: boolean; themeRoomMap?: Record<string, string> }
+  config: { name: string; days: number; rooms: string[]; startHour: number; endHour: number; dayHours?: DayHours[]; breakMinutes?: number; lunchStart?: string; lunchEnd?: string; moderatorsList?: string[]; moderatorThemeMap?: Record<string, string[]>; resetModerators?: boolean; chairsList?: string[]; chairThemeMap?: Record<string, string[]>; chairRoomMap?: Record<string, string[]>; resetChairs?: boolean; themeRoomMap?: Record<string, string | string[]> }
 ): ConferenceSchedule {
   const accepted = conferenceArticles.filter((a) => a.status === "accepted");
   const slots: ScheduleSlot[] = [];
@@ -726,7 +726,7 @@ export function generateScheduleLocally(
 
   // Try to place an article in the best available slot.
   // Returns the room name used, or null if no placement possible.
-  function placeArticle(article: Article, preferDay?: number, preferRoomIdx?: number): string | null {
+  function placeArticle(article: Article, preferDay?: number, preferRoomIdxs: number[] = []): string | null {
     const allDays = Array.from({ length: config.days }, (_, i) => i);
     const dayOrder = preferDay !== undefined
       ? [preferDay, ...allDays.filter(d => d !== preferDay)]
@@ -735,17 +735,21 @@ export function generateScheduleLocally(
     // PRIORITY 1: try the preferred room on ALL days before considering any other room.
     // This prevents articles from being moved to other rooms when their preferred room
     // still has capacity on another day.
-    if (preferRoomIdx !== undefined && preferRoomIdx >= 0) {
+    if (preferRoomIdxs.length > 0) {
       for (const day of dayOrder) {
-        const placed = tryPlaceAt(article, day, preferRoomIdx);
-        if (placed) return placed;
+        // Among the preferred rooms, fill the least-loaded one first
+        const candidates = [...preferRoomIdxs].sort((a, b) => roomTimelines[idx(day, a)] - roomTimelines[idx(day, b)]);
+        for (const r of candidates) {
+          const placed = tryPlaceAt(article, day, r);
+          if (placed) return placed;
+        }
       }
     }
 
     // PRIORITY 2: overflow to other rooms (preferred room is full everywhere)
     for (const day of dayOrder) {
       const others = Array.from({ length: config.rooms.length }, (_, r) => r)
-        .filter((r) => r !== preferRoomIdx)
+        .filter((r) => !preferRoomIdxs.includes(r))
         .sort((a, b) => roomTimelines[idx(day, a)] - roomTimelines[idx(day, b)]);
       for (const r of others) {
         const placed = tryPlaceAt(article, day, r);
@@ -763,9 +767,10 @@ export function generateScheduleLocally(
   for (const [category, articles] of sortedCategories) {
     articles.sort((a, b) => b.duration - a.duration);
 
-    const preferredRoomName = themeRoomMap[category];
-    const preferredRoomIdx = preferredRoomName ? config.rooms.indexOf(preferredRoomName) : -1;
-    const preferRoomIdx = preferredRoomIdx >= 0 ? preferredRoomIdx : undefined;
+    const rawPref = themeRoomMap[category];
+    const preferredRoomNames = (Array.isArray(rawPref) ? rawPref : rawPref ? [rawPref] : []).filter((n) => config.rooms.includes(n));
+    const preferRoomIdxs = preferredRoomNames.map((n) => config.rooms.indexOf(n));
+    const preferredRoomName = preferredRoomNames.join(", ");
 
     // Choose best day: when a preferred room exists, prioritize the day with most
     // remaining capacity in that room (so we maximize what fits in the dedicated room
@@ -774,8 +779,8 @@ export function generateScheduleLocally(
     let bestCapacity = -1;
     for (let d = 0; d < config.days; d++) {
       let cap = 0;
-      if (preferRoomIdx !== undefined) {
-        cap = getDayEnd(d) - roomTimelines[idx(d, preferRoomIdx)];
+      if (preferRoomIdxs.length > 0) {
+        for (const pr of preferRoomIdxs) cap += getDayEnd(d) - roomTimelines[idx(d, pr)];
       } else {
         for (let r = 0; r < config.rooms.length; r++) {
           cap += getDayEnd(d) - roomTimelines[idx(d, r)];
@@ -785,9 +790,9 @@ export function generateScheduleLocally(
     }
 
     for (const article of articles) {
-      const placedRoom = placeArticle(article, bestDay, preferRoomIdx);
+      const placedRoom = placeArticle(article, bestDay, preferRoomIdxs);
       // Track overflow: article placed but not in the preferred room
-      if (placedRoom && preferredRoomName && placedRoom !== preferredRoomName) {
+      if (placedRoom && preferredRoomNames.length > 0 && !preferredRoomNames.includes(placedRoom)) {
         if (!overflowByTheme[category]) {
           overflowByTheme[category] = {
             preferredRoom: preferredRoomName,
