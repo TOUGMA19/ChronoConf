@@ -53,7 +53,7 @@ const SPECIAL_SLOT_COLORS: Record<string, { bg: string; border: string; text: st
   other: { bg: "hsl(0, 0%, 25%)", border: "hsl(0, 0%, 50%)", text: "hsl(0, 0%, 90%)" },
 };
 
-const getCategoryColor = (category: string): string => rgbCss(lightenRgb(getThemeColor(category), 0.82));
+const getCategoryColor = (category: string): string => rgbCss(lightenRgb(getThemeColor(category), 0.7));
 const getCategoryBorderColor = (category: string): string => rgbCss(getThemeColor(category));
 
 function parseTime(t: string): number {
