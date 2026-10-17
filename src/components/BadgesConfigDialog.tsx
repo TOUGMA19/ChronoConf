@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import ListStatusNotice from "./ListStatusNotice";
 import QRCode from "qrcode";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,10 @@ interface BadgesConfigDialogProps {
   badges: BadgeEntry[];
   conferenceName: string;
   customLogoDataUrl?: string;
+  unscheduledCount?: number;
+  includeUnscheduled?: boolean;
+  onIncludeUnscheduledChange?: (v: boolean) => void;
+  unverifiedCount?: number | null;
 }
 
 function readAsDataUrl(file: File): Promise<string> {
@@ -72,6 +77,10 @@ export function BadgesConfigDialog({
   badges,
   conferenceName,
   customLogoDataUrl,
+  unscheduledCount = 0,
+  includeUnscheduled = true,
+  onIncludeUnscheduledChange,
+  unverifiedCount,
 }: BadgesConfigDialogProps) {
   const [eventDate, setEventDate] = useState("");
   const [eventLocation, setEventLocation] = useState("");
@@ -100,9 +109,13 @@ export function BadgesConfigDialog({
     () => new Set<BadgeRole>(["speaker", "moderator", "chair", "participant", "organizer", "other"]),
   );
 
+  // Ne réinitialise la liste éditée que si le CONTENU change (synchro, bascule
+  // « non planifiés »…), pas à chaque rendu du parent — sinon les rôles modifiés
+  // et les personnes ajoutées étaient écrasés (ex. à chaque sauvegarde cloud auto).
+  const badgesSig = useMemo(() => JSON.stringify(badges), [badges]);
   useEffect(() => {
     setEditedBadges(badges);
-  }, [badges]);
+  }, [badgesSig]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Preview controls
   const sample = editedBadges[0];
@@ -234,6 +247,12 @@ export function BadgesConfigDialog({
             Personnalisez le style, la forme et le rôle de chaque participant.
           </DialogDescription>
         </DialogHeader>
+
+        <ListStatusNotice
+          unscheduledCount={unscheduledCount} includeUnscheduled={includeUnscheduled}
+          onIncludeUnscheduledChange={(v) => onIncludeUnscheduledChange?.(v)}
+          unverifiedCount={unverifiedCount} total={editedBadges.length} noun="badge"
+        />
 
         <div className="grid gap-6 md:grid-cols-[1fr_minmax(280px,360px)]">
           {/* ====== LEFT: TABS ====== */}
