@@ -312,7 +312,8 @@ export default function CertificatesConfigDialog({
                     {pptxFile ? "Changer de modèle" : "Charger un modèle .pptx"}
                     <input
                       type="file"
-                      accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                      // Pas de filtre "accept" : sur macOS (Safari/WebKit) la combinaison extension + type MIME
+                      // grise TOUS les fichiers, .pptx compris. Le contenu est vérifié par inspectPptxTemplate().
                       className="hidden"
                       onChange={async (e) => {
                         const f = e.target.files?.[0];
