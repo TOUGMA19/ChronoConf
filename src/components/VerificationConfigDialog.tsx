@@ -13,6 +13,7 @@ import { Copy, ExternalLink, RefreshCw, Upload, Loader2, CheckCircle2, RefreshCc
 import { supabase } from "@/integrations/supabase/client";
 import { buildShareLink, cacheSettings } from "@/lib/verifyLink";
 import { getArticles, updateArticle } from "@/lib/conference";
+import { splitAuthors, normalizeName } from "@/lib/people";
 
 interface Props {
   open: boolean;
@@ -237,16 +238,15 @@ const VerificationConfigDialog = ({ open, onOpenChange, conferenceId, onSynced }
         const patch: Partial<{
           authors: string;
           abstract: string;
-          moderator: string;
         }> = {};
 
         const fullName = [speaker.prenom, speaker.nom].filter(Boolean).join(' ').trim();
         if (fullName && fullName !== article.authors) {
-          // Remplacer le nom de cet auteur dans la liste (garde les co-auteurs)
-          const authorList = article.authors.split(/[,;&]/).map((a) => a.trim());
-          const idx = authorList.findIndex((a) =>
-            a.toLowerCase().includes(speaker!.nom.toLowerCase())
-          );
+          // Remplacer le nom de cet auteur dans la liste (garde les co-auteurs).
+          // Même découpage et même normalisation (accents/casse) que badges et attestations.
+          const authorList = splitAuthors(article.authors);
+          const nom = normalizeName(speaker.nom ?? "");
+          const idx = nom ? authorList.findIndex((a) => normalizeName(a).includes(nom)) : -1;
           if (idx >= 0) {
             authorList[idx] = fullName;
             patch.authors = authorList.join(', ');
