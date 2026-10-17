@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,9 +22,11 @@ import {
   getCertificateTemplate,
   defaultLayout,
   CertificateRole,
+  recipientKey,
 } from "@/lib/exportCertificates";
 import CertificateLayoutEditor from "./CertificateLayoutEditor";
 import { toast } from "sonner";
+import ListStatusNotice from "./ListStatusNotice";
 
 interface Props {
   open: boolean;
@@ -32,9 +34,16 @@ interface Props {
   recipients: CertificateRecipient[];
   conferenceName: string;
   customLogoDataUrl?: string;
+  unscheduledCount?: number;
+  includeUnscheduled?: boolean;
+  onIncludeUnscheduledChange?: (v: boolean) => void;
+  unverifiedCount?: number | null;
 }
 
-export default function CertificatesConfigDialog({ open, onOpenChange, recipients, conferenceName, customLogoDataUrl }: Props) {
+export default function CertificatesConfigDialog({
+  open, onOpenChange, recipients, conferenceName, customLogoDataUrl,
+  unscheduledCount = 0, includeUnscheduled = true, onIncludeUnscheduledChange, unverifiedCount,
+}: Props) {
   const [templateId, setTemplateId] = useState<CertificateTemplateId>("classic-blue");
   const [eventDate, setEventDate] = useState("");
   const [eventLocation, setEventLocation] = useState("");
@@ -49,28 +58,34 @@ export default function CertificatesConfigDialog({ open, onOpenChange, recipient
   const [signatureDataUrl, setSignatureDataUrl] = useState<string | undefined>();
   const [signatureImages, setSignatureImages] = useState<Record<number, string>>({});
   const [pptxFile, setPptxFile] = useState<File | null>(null);
-  const [selectedNames, setSelectedNames] = useState<Set<string>>(() => new Set(recipients.map((r) => r.name)));
+  // Sélection par clé (nom normalisé + rôle + titre) : un même nom avec deux rôles
+  // ou deux communications est coché / décoché indépendamment.
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set(recipients.map(recipientKey)));
   const [extraRecipients, setExtraRecipients] = useState<CertificateRecipient[]>([]);
   const [layout, setLayout] = useState<CertificateLayout>(() => defaultLayout());
   const [busy, setBusy] = useState(false);
 
-  // Reset selection when recipients change
-  useMemo(() => {
-    setSelectedNames((prev) => {
-      const next = new Set(recipients.map((r) => r.name));
-      extraRecipients.forEach((r) => { if (prev.has(r.name)) next.add(r.name); });
+  // Resynchronise la sélection uniquement quand le CONTENU de la liste change
+  // (et non à chaque rendu du parent) : les décochages de l'utilisateur sont conservés.
+  const recipientsSig = useMemo(() => JSON.stringify(recipients.map(recipientKey)), [recipients]);
+  const knownKeys = useRef<Set<string>>(new Set(recipients.map(recipientKey)));
+  useEffect(() => {
+    const keys = recipients.map(recipientKey);
+    setSelectedKeys((prev) => {
+      const next = new Set<string>();
+      keys.forEach((k) => { if (prev.has(k) || !knownKeys.current.has(k)) next.add(k); });
+      extraRecipients.forEach((r) => { const k = recipientKey(r); if (prev.has(k)) next.add(k); });
       return next;
     });
-  }, [recipients]);
+    knownKeys.current = new Set(keys);
+  }, [recipientsSig]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const allRecipients = useMemo(() => {
-    const seen = new Set(recipients.map((r) => r.name.toLowerCase()));
-    return [...recipients, ...extraRecipients.filter((r) => !seen.has(r.name.toLowerCase()))];
+    const seen = new Set(recipients.map(recipientKey));
+    return [...recipients, ...extraRecipients.filter((r) => !seen.has(recipientKey(r)))];
   }, [recipients, extraRecipients]);
 
-  const filteredRecipients = allRecipients.filter((r) => selectedNames.has(r.name));
-
-
+  const filteredRecipients = allRecipients.filter((r) => selectedKeys.has(recipientKey(r)));
 
   const buildOpts = (): CertificateOptions => ({
     conferenceName,
@@ -220,33 +235,40 @@ export default function CertificatesConfigDialog({ open, onOpenChange, recipient
 
           {/* RECIPIENTS */}
           <TabsContent value="recipients" className="flex-1 min-h-0 overflow-hidden flex flex-col">
+            <ListStatusNotice
+              unscheduledCount={unscheduledCount} includeUnscheduled={includeUnscheduled}
+              onIncludeUnscheduledChange={(v) => onIncludeUnscheduledChange?.(v)}
+              unverifiedCount={unverifiedCount} total={allRecipients.length} noun="attestation"
+            />
             <ManualRecipientRow
               onAdd={(name, role, affiliation) => {
-                if (allRecipients.some((r) => r.name.toLowerCase() === name.toLowerCase())) return;
-                setExtraRecipients((prev) => [...prev, { name, role, affiliation: affiliation || undefined }]);
-                setSelectedNames((prev) => new Set(prev).add(name));
+                const rec: CertificateRecipient = { name, role, affiliation: affiliation || undefined };
+                if (allRecipients.some((r) => recipientKey(r) === recipientKey(rec))) return;
+                setExtraRecipients((prev) => [...prev, rec]);
+                setSelectedKeys((prev) => new Set(prev).add(recipientKey(rec)));
               }}
             />
             <div className="flex items-center gap-2 pb-2">
-              <Button size="sm" variant="outline" onClick={() => setSelectedNames(new Set(allRecipients.map((r) => r.name)))}>Tout sélectionner</Button>
-              <Button size="sm" variant="outline" onClick={() => setSelectedNames(new Set())}>Tout désélectionner</Button>
+              <Button size="sm" variant="outline" onClick={() => setSelectedKeys(new Set(allRecipients.map(recipientKey)))}>Tout sélectionner</Button>
+              <Button size="sm" variant="outline" onClick={() => setSelectedKeys(new Set())}>Tout désélectionner</Button>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto border border-border rounded-md">
               <div className="p-2 space-y-1">
                 {allRecipients.map((r) => {
-                  const checked = selectedNames.has(r.name);
-                  const isExtra = extraRecipients.some((e) => e.name === r.name);
+                  const rk = recipientKey(r);
+                  const checked = selectedKeys.has(rk);
+                  const isExtra = extraRecipients.some((e) => recipientKey(e) === rk);
                   return (
-                    <label key={r.name} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/50 cursor-pointer">
+                    <label key={rk} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/50 cursor-pointer">
                       <Checkbox
                         checked={checked}
                         onCheckedChange={(c) => {
-                          const next = new Set(selectedNames);
-                          if (c) next.add(r.name); else next.delete(r.name);
-                          setSelectedNames(next);
+                          const next = new Set(selectedKeys);
+                          if (c) next.add(rk); else next.delete(rk);
+                          setSelectedKeys(next);
                         }}
                       />
-                      <span className="flex-1 text-sm truncate">{r.name}</span>
+                      <span className="flex-1 text-sm truncate">{r.name}{r.communicationTitle ? <span className="text-muted-foreground"> — {r.communicationTitle}</span> : null}</span>
                       <span className="text-xs text-muted-foreground">{CERT_ROLE_LABEL[r.role]}</span>
                       {isExtra && (
                         <Button
@@ -256,8 +278,8 @@ export default function CertificatesConfigDialog({ open, onOpenChange, recipient
                           className="h-6 w-6"
                           onClick={(e) => {
                             e.preventDefault();
-                            setExtraRecipients((prev) => prev.filter((p) => p.name !== r.name));
-                            setSelectedNames((prev) => { const n = new Set(prev); n.delete(r.name); return n; });
+                            setExtraRecipients((prev) => prev.filter((p) => recipientKey(p) !== rk));
+                            setSelectedKeys((prev) => { const n = new Set(prev); n.delete(rk); return n; });
                           }}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
