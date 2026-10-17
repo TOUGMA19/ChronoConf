@@ -4,6 +4,7 @@ import PizZip from "pizzip";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import { ConferenceSchedule, Article } from "./conference";
+import { splitAuthors, normalizeName, getUnscheduledArticles } from "./people";
 
 // ===========================================================================
 // TYPES
@@ -215,53 +216,80 @@ export function createCustomBlock(text = "Texte personnalisé"): CertificateBloc
 // RECIPIENTS BUILDER
 // ===========================================================================
 
-function splitAuthors(raw: string): string[] {
-  if (!raw) return [];
-  return raw.split(/[,;&\n]| et | and /i).map((s) => s.trim()).filter((s) => s.length > 1);
+export interface BuildRecipientsOptions {
+  /** Inclure les communications (non rejetées) absentes du chronogramme. Défaut : true. */
+  includeUnscheduled?: boolean;
+  /** Organisateurs à ajouter (dédoublonnés par nom normalisé). */
+  organizers?: { name: string; role?: string }[];
+}
+
+/** Clé d'identité d'un destinataire (nom normalisé + rôle + titre). */
+export function recipientKey(rec: CertificateRecipient): string {
+  return `${normalizeName(rec.name)}|${rec.role}|${normalizeName(rec.communicationTitle ?? "")}`;
 }
 
 /**
  * Construit la liste des destinataires à partir du programme.
  *
- * IMPORTANT : la déduplication se fait par (nom + rôle + titre de communication).
- * Ainsi, un même auteur ayant plusieurs communications reçoit UNE attestation
- * par communication. Les rôles transverses (modérateur / président) sont
- * dédupliqués par (nom + rôle) car ils ne sont pas liés à une communication.
+ * IMPORTANT : la déduplication se fait par (nom normalisé + rôle + titre de
+ * communication). Un même auteur ayant plusieurs communications reçoit UNE
+ * attestation par communication. Les rôles transverses (modérateur / président)
+ * sont dédupliqués par (nom + rôle).
  */
 export function buildRecipientsFromSchedule(
   schedule: ConferenceSchedule,
   articles: Article[],
+  options: BuildRecipientsOptions = {},
 ): CertificateRecipient[] {
+  const { includeUnscheduled = true, organizers = [] } = options;
   const articleMap = new Map(articles.map((a) => [a.id, a]));
   const byKey = new Map<string, CertificateRecipient>();
-
-  const normalize = (s: string) => s.trim().toLowerCase();
-  const keyOf = (rec: CertificateRecipient) =>
-    `${normalize(rec.name)}|${rec.role}|${normalize(rec.communicationTitle ?? "")}`;
 
   const upsert = (rec: CertificateRecipient) => {
     const name = rec.name.trim();
     if (!name) return;
     const clean: CertificateRecipient = { ...rec, name };
-    const k = keyOf(clean);
+    const k = recipientKey(clean);
     const existing = byKey.get(k);
     if (!existing) { byKey.set(k, clean); return; }
-    // Même clé : compléter les champs manquants sans écraser.
-    const merged: CertificateRecipient = { ...existing };
-    if (!merged.affiliation && clean.affiliation) merged.affiliation = clean.affiliation;
-    if (!merged.communicationTitle && clean.communicationTitle) merged.communicationTitle = clean.communicationTitle;
-    byKey.set(k, merged);
+    byKey.set(k, {
+      ...existing,
+      affiliation: existing.affiliation || clean.affiliation,
+      communicationTitle: existing.communicationTitle || clean.communicationTitle,
+    });
   };
 
-  for (const s of schedule.slots) {
-    const a = articleMap.get(s.articleId);
-    if (!a) continue;
+  const addArticle = (a: Article) => {
     splitAuthors(a.authors).forEach((author) =>
       upsert({ name: author, role: "speaker", affiliation: a.category, communicationTitle: a.title }),
     );
     // Modérateur / président : une attestation par personne (rôle transverse).
     if (a.moderator) upsert({ name: a.moderator, role: "moderator", affiliation: a.category });
     if (a.sessionChair) upsert({ name: a.sessionChair, role: "chair", affiliation: a.category });
+  };
+
+  for (const s of schedule.slots) {
+    const a = articleMap.get(s.articleId);
+    if (a) addArticle(a);
+  }
+  // Intervenants des créneaux spéciaux (conférences plénières, cérémonies…)
+  for (const sp of schedule.specialSlots ?? []) {
+    if (sp.speaker) {
+      splitAuthors(sp.speaker).forEach((n) =>
+        upsert({ name: n, role: "speaker", affiliation: sp.title, communicationTitle: sp.title }),
+      );
+    }
+  }
+  if (includeUnscheduled) getUnscheduledArticles(schedule, articles).forEach(addArticle);
+
+  // Organisateurs : ajoutés seulement si la personne n'est pas déjà destinataire
+  const known = new Set([...byKey.values()].map((r) => normalizeName(r.name)));
+  for (const o of organizers) {
+    const key = normalizeName(o.name);
+    if (key && !known.has(key)) {
+      known.add(key);
+      upsert({ name: o.name, role: "organizer", affiliation: o.role || undefined });
+    }
   }
 
   return [...byKey.values()].sort((x, y) => {
