@@ -425,6 +425,54 @@ export function clearAllData(): void {
   localStorage.removeItem(STORAGE_KEY);
 }
 
+/**
+ * Réinitialise TOUTES les données en mémoire et en local (y compris les
+ * organisateurs). Appelé à l'ouverture d'un projet vide pour éviter que les
+ * données d'un autre projet (clé locale unique) soient affichées puis
+ * sauvegardées dans le nouveau projet.
+ */
+export function resetForNewProject(): void {
+  articles = [];
+  schedule = null;
+  categories = [];
+  moderators = [];
+  sessionChairs = [];
+  organizers = [];
+  presentationTypes = [...DEFAULT_PRESENTATION_TYPES];
+  try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+}
+
+export type DurationScope =
+  | { kind: "all" }
+  | { kind: "type"; value: string }
+  | { kind: "category"; value: string };
+
+export const MIN_DURATION = 5;
+export const MAX_DURATION = 120;
+
+/**
+ * Applique une même durée (minutes) à un groupe de présentations.
+ * Retourne le nombre d'articles modifiés. La durée est bornée à 5–120 min.
+ * Le chronogramme existant n'est PAS recalculé : il faut le régénérer.
+ */
+export function setArticlesDuration(scope: DurationScope, minutes: number, onlyAccepted = false): number {
+  const d = Math.min(MAX_DURATION, Math.max(MIN_DURATION, Math.round(minutes)));
+  if (!Number.isFinite(d)) return 0;
+  let count = 0;
+  articles = articles.map((a) => {
+    if (onlyAccepted && a.status !== "accepted") return a;
+    const match =
+      scope.kind === "all" ||
+      (scope.kind === "type" && a.type === scope.value) ||
+      (scope.kind === "category" && a.category === scope.value);
+    if (!match || a.duration === d) return a;
+    count++;
+    return { ...a, duration: d };
+  });
+  if (count > 0) saveToStorage();
+  return count;
+}
+
 // ===== Special Slots =====
 export function addSpecialSlot(slot: Omit<SpecialSlot, "id">): SpecialSlot {
   if (!schedule) return { ...slot, id: "" };
