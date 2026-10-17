@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { Plus, Calendar, Trash2, Zap, FileText, Users, Clock, Upload, Download, UserCheck, X, GraduationCap, Check, AlertTriangle, BarChart3, ChevronDown, ChevronUp, Mic, Pencil, Sun, Moon, Tag, Award, ShieldCheck, LogOut, Save, Cloud, Send } from "lucide-react";
+import { Plus, Calendar, Trash2, Zap, FileText, Users, Clock, Upload, Download, UserCheck, X, GraduationCap, Check, AlertTriangle, BarChart3, ChevronDown, ChevronUp, Mic, Pencil, Sun, Moon, Tag, Award, ShieldCheck, LogOut, Save, Cloud, Send, Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -11,7 +11,11 @@ import {
   getModerators, addModerator, addModerators, removeModerator, clearModerators,
   getSessionChairs, addSessionChair, addSessionChairs, removeSessionChair, clearSessionChairs,
   getPresentationTypes, getOrganizers, Article, SpecialSlot, DayHours, loadFromBlob, exportBlob,
+  resetForNewProject, setArticlesDuration, DurationScope,
 } from "@/lib/conference";
+import { getUnscheduledArticles } from "@/lib/people";
+import BulkDurationDialog from "@/components/BulkDurationDialog";
+import { supabase } from "@/integrations/supabase/client";
 import OrganizersDialog from "@/components/OrganizersDialog";
 import VerificationConfigDialog from "@/components/VerificationConfigDialog";
 import PublishScheduleDialog from "@/components/PublishScheduleDialog";
@@ -88,16 +92,23 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
   const [lastSaved, setLastSaved] = useState<string | null>(null);
   const [projectLoaded, setProjectLoaded] = useState(false);
 
-  // Load cloud data on mount
+  // Load cloud data on mount.
+  // Le stockage local n'a qu'une seule clé : on mémorise le projet auquel il appartient
+  // pour ne jamais afficher / sauvegarder les données d'un AUTRE projet dans celui-ci.
   useEffect(() => {
+    const PROJECT_KEY = "chronoconf_project_slug";
+    const readSlug = () => { try { return localStorage.getItem(PROJECT_KEY); } catch { return null; } };
+    const writeSlug = () => { try { localStorage.setItem(PROJECT_KEY, projectSlug); } catch { /* ignore */ } };
+    const foreign = readSlug() !== projectSlug;
     loadProject(projectSlug).then((blob) => {
-      if (blob && Object.keys(blob).length > 0) {
-        loadFromBlob(blob);
-        setRefreshKey((k) => k + 1);
-      }
+      if (foreign) resetForNewProject();
+      if (blob && Object.keys(blob).length > 0) loadFromBlob(blob);
+      writeSlug();
+      setRefreshKey((k) => k + 1);
       setProjectLoaded(true);
     }).catch((e) => {
       console.error("Erreur chargement cloud:", e);
+      if (foreign) { resetForNewProject(); writeSlug(); setRefreshKey((k) => k + 1); }
       setProjectLoaded(true);
     });
   }, [projectSlug]);
@@ -137,6 +148,9 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
   const [specialSlotOpen, setSpecialSlotOpen] = useState(false);
   const [badgesConfigOpen, setBadgesConfigOpen] = useState(false);
   const [certificatesOpen, setCertificatesOpen] = useState(false);
+  const [durationDialogOpen, setDurationDialogOpen] = useState(false);
+  const [includeUnscheduled, setIncludeUnscheduled] = useState(true);
+  const [unverifiedCount, setUnverifiedCount] = useState<number | null>(null);
   const [editArticle, setEditArticle] = useState<Article | null>(null);
   const [editSpecialSlot, setEditSpecialSlot] = useState<SpecialSlot | null>(null);
   const [pdfOptions, setPdfOptions] = useState<PdfExportOptions>(DEFAULT_PDF_OPTIONS);
@@ -175,6 +189,32 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
   const categoriesList = useMemo(() => getCategories(), [refreshKey]);
   const chairsList = useMemo(() => getSessionChairs(), [refreshKey]);
   const organizersList = useMemo(() => getOrganizers(), [refreshKey]);
+  const unscheduled = useMemo(() => getUnscheduledArticles(schedule, articles), [schedule, articles]);
+  const unscheduledIds = useMemo(() => new Set(unscheduled.map((a) => a.id)), [unscheduled]);
+  // Listes mémorisées : référence stable tant que les données ne changent pas.
+  const badgeList = useMemo(
+    () => (schedule ? buildBadgesFromSchedule(schedule, articles, { includeUnscheduled, organizers: organizersList }) : []),
+    [schedule, articles, organizersList, includeUnscheduled],
+  );
+  const recipientList = useMemo(
+    () => (schedule ? buildRecipientsFromSchedule(schedule, articles, { includeUnscheduled, organizers: organizersList }) : []),
+    [schedule, articles, organizersList, includeUnscheduled],
+  );
+
+  // Intervenants n'ayant pas encore vérifié leurs informations (à l'ouverture des fenêtres)
+  useEffect(() => {
+    if (!badgesConfigOpen && !certificatesOpen) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { count, error } = await supabase
+          .from("speakers").select("code", { count: "exact", head: true })
+          .eq("conference_id", projectSlug).is("verified_at", null);
+        if (!cancelled) setUnverifiedCount(error ? null : count ?? 0);
+      } catch { if (!cancelled) setUnverifiedCount(null); }
+    })();
+    return () => { cancelled = true; };
+  }, [badgesConfigOpen, certificatesOpen, projectSlug]);
   const filtered = useMemo(() => {
     let list = articles;
     if (filterCategory !== "all") list = list.filter((a) => a.category === filterCategory);
@@ -235,7 +275,16 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
     });
     setSelectedDay(0);
     setRefreshKey((k) => k + 1);
-    toast.success(`Chronogramme généré avec ${accepted.length} présentations`);
+    const placedIds = new Set((getSchedule()?.slots ?? []).map((sl) => sl.articleId));
+    const notPlaced = accepted.filter((a) => !placedIds.has(a.id));
+    if (notPlaced.length === 0) {
+      toast.success(`Chronogramme généré avec ${accepted.length} présentations`);
+    } else {
+      toast.warning(
+        `${accepted.length - notPlaced.length} présentation(s) planifiée(s) sur ${accepted.length}. ${notPlaced.length} n'ont pas pu être placées (plus de place dans les salles / journées) : ajoutez une salle ou un jour, ou réduisez les durées.`,
+        { duration: 12000 },
+      );
+    }
     const overflows = getLastOverflowReport();
     if (overflows.length > 0) {
       overflows.forEach((o) => {
@@ -335,6 +384,9 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
             <Button variant="outline" onClick={() => setTypesDialogOpen(true)} className="gap-2">
               <Tag className="h-4 w-4" /><span className="hidden sm:inline">Types ({presentationTypesList.length})</span>
             </Button>
+            <Button variant="outline" onClick={() => setDurationDialogOpen(true)} className="gap-2" disabled={articles.length === 0} title="Définir la durée de plusieurs présentations">
+              <Timer className="h-4 w-4" /><span className="hidden sm:inline">Durées</span>
+            </Button>
             <Button variant="outline" onClick={() => setImportOpen(true)} className="gap-2">
               <Upload className="h-4 w-4" /><span className="hidden sm:inline">Importer CSV</span>
             </Button>
@@ -407,6 +459,27 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
           </Button>
         )}
 
+        {unscheduled.length > 0 && (
+          <div className="rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 mt-0.5 text-warning shrink-0" />
+              <div className="min-w-0">
+                <p className="font-medium text-foreground">
+                  {unscheduled.length} communication{unscheduled.length > 1 ? "s" : ""} absente{unscheduled.length > 1 ? "s" : ""} du chronogramme
+                  {!schedule ? " (aucun chronogramme généré)" : ""}
+                </p>
+                <p className="text-muted-foreground mt-1">
+                  {unscheduled.slice(0, 5).map((a) => a.title).join(" · ")}
+                  {unscheduled.length > 5 ? ` · … +${unscheduled.length - 5} autres` : ""}
+                </p>
+                <p className="text-muted-foreground mt-1">
+                  Les articles « soumis » ne sont pas planifiés automatiquement ; les articles acceptés sans créneau n'ont pas trouvé de place. Régénérez le chronogramme ou ajustez salles, jours et durées.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {showStats && <StatsDashboard articles={articles} schedule={schedule} />}
 
         {conflicts.length > 0 && (() => {
@@ -469,7 +542,7 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
           ) : (
             <div className="divide-y divide-border">
               {filtered.map((a) => (
-                <ArticleRow key={a.id} article={a} onDelete={handleDelete} onEdit={(a) => setEditArticle(a)} />
+                <ArticleRow key={a.id} article={a} unscheduled={unscheduledIds.has(a.id)} onDelete={handleDelete} onEdit={(a) => setEditArticle(a)} />
               ))}
             </div>
           )}
@@ -547,8 +620,8 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
                 <Button size="sm" className="gap-1 gradient-accent text-accent-foreground" onClick={() => setPublishDialogOpen(true)}><Send className="h-3.5 w-3.5" />Publier le programme</Button>
                 <Button size="sm" variant="outline" onClick={() => { setPdfExportTarget("linear"); setPdfOptionsOpen(true); }} className="gap-1"><Download className="h-3.5 w-3.5" />PDF</Button>
                 <Button size="sm" variant="outline" onClick={() => { const s = getSchedule(); if (!s) return; exportBookletPDF(s, getArticles(), customLogoDataUrl || undefined); toast.success("Livret PDF généré !"); }} className="gap-1"><FileText className="h-3.5 w-3.5" />Livret</Button>
-                <Button size="sm" variant="outline" onClick={() => { if (!schedule) return; const b = buildBadgesFromSchedule(schedule, articles); if (!b.length) { toast.error("Aucun intervenant"); return; } setBadgesConfigOpen(true); }} className="gap-1"><UserCheck className="h-3.5 w-3.5" />Badges</Button>
-                <Button size="sm" variant="outline" onClick={() => { if (!schedule) return; const r = buildRecipientsFromSchedule(schedule, articles); if (!r.length) { toast.error("Aucun destinataire"); return; } setCertificatesOpen(true); }} className="gap-1"><Award className="h-3.5 w-3.5" />Attestations</Button>
+                <Button size="sm" variant="outline" onClick={() => { if (!schedule) return; const b = badgeList; if (!b.length) { toast.error("Aucun intervenant"); return; } setBadgesConfigOpen(true); }} className="gap-1"><UserCheck className="h-3.5 w-3.5" />Badges</Button>
+                <Button size="sm" variant="outline" onClick={() => { if (!schedule) return; const r = recipientList; if (!r.length) { toast.error("Aucun destinataire"); return; } setCertificatesOpen(true); }} className="gap-1"><Award className="h-3.5 w-3.5" />Attestations</Button>
                 <Button size="sm" variant="outline" onClick={() => { if (!schedule) return; exportScheduleXLSX(schedule, articles); toast.success("Export Excel généré !"); }} className="gap-1"><Download className="h-3.5 w-3.5" />Excel</Button>
               </div>
             </div>
@@ -564,6 +637,18 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
       {schedule && <AddSpecialSlotDialog open={specialSlotOpen} onOpenChange={setSpecialSlotOpen} schedule={schedule} onAdded={() => setRefreshKey((k) => k + 1)} />}
       {schedule && <EditSpecialSlotDialog open={!!editSpecialSlot} onOpenChange={(open) => { if (!open) setEditSpecialSlot(null); }} schedule={schedule} slot={editSpecialSlot} onUpdated={() => setRefreshKey((k) => k + 1)} />}
       <EditArticleDialog open={!!editArticle} onOpenChange={(open) => { if (!open) setEditArticle(null); }} article={editArticle} onUpdated={() => setRefreshKey((k) => k + 1)} />
+      <BulkDurationDialog
+        open={durationDialogOpen} onOpenChange={setDurationDialogOpen}
+        articles={articles} types={presentationTypesList} categories={categoriesList} hasSchedule={!!schedule}
+        onApply={(scope: DurationScope, minutes, onlyAccepted) => {
+          const n = setArticlesDuration(scope, minutes, onlyAccepted);
+          setRefreshKey((k) => k + 1);
+          if (n === 0) { toast.info("Aucune présentation à modifier (durée déjà appliquée)."); return n; }
+          toast.success(`Durée de ${n} présentation${n > 1 ? "s" : ""} fixée à ${minutes} min`,
+            schedule ? { action: { label: "Régénérer le chronogramme", onClick: () => handleGenerate() }, duration: 10000 } : undefined);
+          return n;
+        }}
+      />
       <PresentationTypesDialog open={typesDialogOpen} onOpenChange={setTypesDialogOpen} onChanged={() => setRefreshKey((k) => k + 1)} />
       <OrganizersDialog open={organizersDialogOpen} onOpenChange={setOrganizersDialogOpen} onChanged={() => setRefreshKey((k) => k + 1)} />
       <VerificationConfigDialog open={verifyDialogOpen} onOpenChange={setVerifyDialogOpen} conferenceId={projectSlug} onSynced={() => { setRefreshKey((k) => k + 1); cloudSave(true); }} />
@@ -572,7 +657,9 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
       {schedule && (
         <BadgesConfigDialog
           open={badgesConfigOpen} onOpenChange={setBadgesConfigOpen}
-          badges={[...buildBadgesFromSchedule(schedule, articles), ...organizersList.filter((o) => !buildBadgesFromSchedule(schedule, articles).some((b) => b.name.toLowerCase() === o.name.toLowerCase())).map((o) => ({ name: o.name, role: "organizer" as const, affiliation: o.role || undefined }))]}
+          badges={badgeList}
+          unscheduledCount={unscheduled.length} includeUnscheduled={includeUnscheduled}
+          onIncludeUnscheduledChange={setIncludeUnscheduled} unverifiedCount={unverifiedCount}
           conferenceName={schedule.name} customLogoDataUrl={customLogoDataUrl || undefined}
           onGenerate={async (opts, customizedBadges) => {
             try { await exportBadgesPDF(schedule, customizedBadges, { ...opts, customLogoDataUrl: customLogoDataUrl || undefined }); toast.success(`${customizedBadges.length} badges générés !`); }
@@ -583,7 +670,9 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
       {schedule && (
         <CertificatesConfigDialog
           open={certificatesOpen} onOpenChange={setCertificatesOpen}
-          recipients={[...buildRecipientsFromSchedule(schedule, articles), ...organizersList.filter((o) => !buildRecipientsFromSchedule(schedule, articles).some((r) => r.name.toLowerCase() === o.name.toLowerCase())).map((o) => ({ name: o.name, role: "organizer" as const, affiliation: o.role || undefined }))]}
+          recipients={recipientList}
+          unscheduledCount={unscheduled.length} includeUnscheduled={includeUnscheduled}
+          onIncludeUnscheduledChange={setIncludeUnscheduled} unverifiedCount={unverifiedCount}
           conferenceName={schedule.name} customLogoDataUrl={customLogoDataUrl || undefined}
         />
       )}
@@ -848,13 +937,14 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
   );
 };
 
-const ArticleRow = ({ article, onDelete, onEdit }: { article: Article; onDelete: (id: string) => void; onEdit: (a: Article) => void }) => (
+const ArticleRow = ({ article, unscheduled, onDelete, onEdit }: { article: Article; unscheduled?: boolean; onDelete: (id: string) => void; onEdit: (a: Article) => void }) => (
   <div className="flex items-center justify-between p-4 hover:bg-muted/50 transition-colors">
     <div className="min-w-0 flex-1 cursor-pointer" onClick={() => onEdit(article)}>
       <div className="flex items-center gap-2 mb-1">
         <p className="font-medium text-foreground truncate">{article.title}</p>
         <Badge variant="outline" className={STATUS_BADGE[article.status]}>{STATUS_LABEL[article.status]}</Badge>
         <Badge variant="outline" className="text-xs capitalize">{article.type || "—"}</Badge>
+        {unscheduled && <Badge variant="outline" className="text-xs bg-warning/15 text-warning border-warning/30">Non planifié</Badge>}
       </div>
       <p className="text-sm text-muted-foreground truncate">{article.authors}{article.moderator ? ` · Mod: ${article.moderator}` : ""}{article.sessionChair ? ` · Prés: ${article.sessionChair}` : ""} · {article.category} · {article.duration} min</p>
     </div>
