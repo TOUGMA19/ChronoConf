@@ -497,6 +497,58 @@ export async function exportCertificatesPDF(
 // PPTX TEMPLATE FILLER
 // ===========================================================================
 
+/** Balises texte reconnues dans un modèle .pptx (hors QR et signatures). */
+export const PPTX_TEXT_TAGS = [
+  "nom", "name", "role", "affiliation", "titre", "title", "conference",
+  "date", "lieu", "location", "organisateur", "signataire",
+] as const;
+
+export interface PptxTemplateInfo {
+  ok: boolean;
+  error?: string;
+  slides: number;
+  /** Balises reconnues trouvées dans le modèle (ex. nom, qr, signature1). */
+  found: string[];
+  /** Balises {{…}} non reconnues : elles resteraient visibles dans les attestations. */
+  unknown: string[];
+}
+
+/**
+ * Vérifie un modèle .pptx dès son chargement : fichier valide, nombre de
+ * diapositives, balises reconnues et balises inconnues.
+ */
+export async function inspectPptxTemplate(file: File | ArrayBuffer): Promise<PptxTemplateInfo> {
+  const fail = (error: string): PptxTemplateInfo => ({ ok: false, error, slides: 0, found: [], unknown: [] });
+  try {
+    const buf = file instanceof File ? await file.arrayBuffer() : file;
+    if (file instanceof File && !/\.(pptx|potx|ppsx)$/i.test(file.name)) {
+      return fail("Format non pris en charge : choisissez un fichier .pptx (PowerPoint 2007 ou plus récent). Un ancien .ppt doit être réenregistré en .pptx.");
+    }
+    let zip: PizZip;
+    try { zip = new PizZip(buf); } catch { return fail("Fichier illisible ou corrompu : ce n'est pas un .pptx valide."); }
+    if (!zip.file("ppt/presentation.xml")) return fail("Ce fichier n'est pas une présentation PowerPoint (.pptx) valide.");
+
+    const slidePaths = Object.keys(zip.files).filter((p) => /^ppt\/slides\/slide\d+\.xml$/.test(p));
+    if (slidePaths.length === 0) return fail("Le modèle ne contient aucune diapositive.");
+
+    const known = new Set<string>(PPTX_TEXT_TAGS);
+    const found = new Set<string>();
+    const unknown = new Set<string>();
+    for (const sp of slidePaths) {
+      const xml = zip.file(sp)?.asText() ?? "";
+      for (const m of xml.matchAll(/\{\{\s*([\s\S]*?)\s*\}\}/g)) {
+        const key = m[1].replace(/<[^>]+>/g, "").trim().toLowerCase();
+        if (!key || key.length > 40) continue;
+        if (known.has(key) || ["codeqr", "qrcode", "qr"].includes(key) || /^(?:signature|signatureimage)\d*$/.test(key)) found.add(key);
+        else unknown.add(key);
+      }
+    }
+    return { ok: true, slides: slidePaths.length, found: [...found].sort(), unknown: [...unknown].sort() };
+  } catch (e) {
+    return fail("Impossible de lire le modèle : " + (e instanceof Error ? e.message : String(e)));
+  }
+}
+
 export async function exportCertificatesPPTX(
   templateFile: File | ArrayBuffer,
   recipients: CertificateRecipient[],
