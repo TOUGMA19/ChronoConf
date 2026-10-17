@@ -19,6 +19,9 @@ import {
   CERT_ROLE_LABEL,
   exportCertificatesPDF,
   exportCertificatesPPTX,
+  inspectPptxTemplate,
+  PptxTemplateInfo,
+  PPTX_TEXT_TAGS,
   getCertificateTemplate,
   defaultLayout,
   CertificateRole,
@@ -58,6 +61,8 @@ export default function CertificatesConfigDialog({
   const [signatureDataUrl, setSignatureDataUrl] = useState<string | undefined>();
   const [signatureImages, setSignatureImages] = useState<Record<number, string>>({});
   const [pptxFile, setPptxFile] = useState<File | null>(null);
+  const [pptxInfo, setPptxInfo] = useState<PptxTemplateInfo | null>(null);
+  const [pptxLoading, setPptxLoading] = useState(false);
   // Sélection par clé (nom normalisé + rôle + titre) : un même nom avec deux rôles
   // ou deux communications est coché / décoché indépendamment.
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set(recipients.map(recipientKey)));
@@ -309,10 +314,18 @@ export default function CertificatesConfigDialog({
                       type="file"
                       accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
                       className="hidden"
-                      onChange={(e) => {
+                      onChange={async (e) => {
                         const f = e.target.files?.[0];
-                        if (f) setPptxFile(f);
                         e.target.value = "";
+                        if (!f) return;
+                        setPptxLoading(true);
+                        const info = await inspectPptxTemplate(f);
+                        setPptxLoading(false);
+                        if (!info.ok) { toast.error(info.error ?? "Modèle .pptx invalide"); return; }
+                        setPptxFile(f);
+                        setPptxInfo(info);
+                        if (info.found.length === 0) toast.warning("Aucune balise {{…}} reconnue dans ce modèle : les attestations seraient identiques.");
+                        else toast.success(`Modèle chargé : ${info.slides} diapositive${info.slides > 1 ? "s" : ""}, ${info.found.length} balise${info.found.length > 1 ? "s" : ""} reconnue${info.found.length > 1 ? "s" : ""}.`);
                       }}
                     />
                   </label>
@@ -323,7 +336,27 @@ export default function CertificatesConfigDialog({
                     {pptxFile.name}
                   </span>
                 )}
+                {pptxLoading && <span className="text-xs text-muted-foreground">Vérification…</span>}
               </div>
+              {pptxInfo && (
+                <div className="text-xs space-y-1">
+                  <p>
+                    {pptxInfo.slides} diapositive{pptxInfo.slides > 1 ? "s" : ""} · balises reconnues :{" "}
+                    {pptxInfo.found.length ? pptxInfo.found.map((t) => <code key={t} className="font-mono mr-1">{`{{${t}}}`}</code>) : <em>aucune</em>}
+                  </p>
+                  {pptxInfo.unknown.length > 0 && (
+                    <p className="text-warning">
+                      Balises non reconnues (resteront visibles) :{" "}
+                      {pptxInfo.unknown.map((t) => <code key={t} className="font-mono mr-1">{`{{${t}}}`}</code>)}
+                    </p>
+                  )}
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Balises disponibles :{" "}
+                {PPTX_TEXT_TAGS.map((t) => <code key={t} className="font-mono mr-1">{`{{${t}}}`}</code>)}
+                <code className="font-mono mr-1">{`{{qr}}`}</code><code className="font-mono">{`{{signature}}`}</code>
+              </p>
             </div>
 
             <div className="rounded-lg border border-border p-4 space-y-3">
