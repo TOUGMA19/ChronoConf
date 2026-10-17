@@ -1,6 +1,7 @@
 import jsPDF from "jspdf";
 import QRCode from "qrcode";
 import { ConferenceSchedule, Article } from "./conference";
+import { splitAuthors, normalizeName, getUnscheduledArticles } from "./people";
 
 // ===========================================================================
 // PUBLIC TYPES
@@ -353,34 +354,59 @@ export const DECORATION_KEYS: BadgeDecoration[] = Object.keys(DECORATION_LABEL) 
 // HELPERS — splits, slug, qr
 // ===========================================================================
 
-function splitAuthors(raw: string): string[] {
-  if (!raw) return [];
-  return raw.split(/[,;&\n]| et | and /i).map((s) => s.trim()).filter((s) => s.length > 1);
+export interface BuildListOptions {
+  /** Inclure les communications (non rejetées) absentes du chronogramme. Défaut : true. */
+  includeUnscheduled?: boolean;
+  /** Organisateurs à ajouter (dédoublonnés par nom normalisé). */
+  organizers?: { name: string; role?: string }[];
 }
 
-export function buildBadgesFromSchedule(schedule: ConferenceSchedule, articles: Article[]): BadgeEntry[] {
-  const articleMap = new Map(articles.map((a) => [a.id, a]));
+export function buildBadgesFromSchedule(
+  schedule: ConferenceSchedule,
+  articles: Article[],
+  options: BuildListOptions = {},
+): BadgeEntry[] {
+  const { includeUnscheduled = true, organizers = [] } = options;
   const byName = new Map<string, BadgeEntry>();
+  const priority: Record<BadgeRole, number> = { chair: 3, moderator: 2, speaker: 1, organizer: 1, other: 0, participant: 0 };
 
   const upsert = (name: string, role: BadgeRole, affiliation?: string) => {
-    const key = name.trim();
+    const display = name.trim();
+    const key = normalizeName(display);
     if (!key) return;
     const existing = byName.get(key);
     if (!existing) {
-      byName.set(key, { name: key, role, affiliation });
+      byName.set(key, { name: display, role, affiliation });
       return;
     }
-    const priority: Record<BadgeRole, number> = { chair: 3, moderator: 2, speaker: 1, organizer: 1, other: 0, participant: 0 };
-    if (priority[role] > priority[existing.role]) byName.set(key, { ...existing, role });
-    if (!existing.affiliation && affiliation) byName.set(key, { ...byName.get(key)!, affiliation });
+    byName.set(key, {
+      ...existing,
+      role: priority[role] > priority[existing.role] ? role : existing.role,
+      affiliation: existing.affiliation || affiliation,
+    });
+  };
+
+  const articleMap = new Map(articles.map((a) => [a.id, a]));
+  const addArticle = (a: Article) => {
+    splitAuthors(a.authors).forEach((author) => upsert(author, "speaker", a.category));
+    if (a.moderator) upsert(a.moderator, "moderator", a.category);
+    if (a.sessionChair) upsert(a.sessionChair, "chair", a.category);
   };
 
   for (const s of schedule.slots) {
     const a = articleMap.get(s.articleId);
-    if (!a) continue;
-    splitAuthors(a.authors).forEach((author) => upsert(author, "speaker", a.category));
-    if (a.moderator) upsert(a.moderator, "moderator", a.category);
-    if (a.sessionChair) upsert(a.sessionChair, "chair", a.category);
+    if (a) addArticle(a);
+  }
+  // Intervenants des créneaux spéciaux (conférences plénières, cérémonies…)
+  for (const sp of schedule.specialSlots ?? []) {
+    if (sp.speaker) splitAuthors(sp.speaker).forEach((n) => upsert(n, "speaker", sp.title));
+  }
+  if (includeUnscheduled) getUnscheduledArticles(schedule, articles).forEach(addArticle);
+
+  // Organisateurs : ajoutés seulement s'ils ne figurent pas déjà (rôle existant conservé)
+  for (const o of organizers) {
+    const key = normalizeName(o.name);
+    if (key && !byName.has(key)) upsert(o.name, "organizer", o.role || undefined);
   }
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name, "fr"));
 }
