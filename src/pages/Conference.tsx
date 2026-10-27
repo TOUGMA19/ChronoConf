@@ -33,7 +33,7 @@ import PresentationTypesDialog from "@/components/PresentationTypesDialog";
 import StatsDashboard from "@/components/StatsDashboard";
 import { exportSchedulePDF, exportSchedulePDFByRoom, PdfExportOptions, DEFAULT_PDF_OPTIONS } from "@/lib/exportPdf";
 import { exportScheduleDOCX } from "@/lib/exportDocx";
-import { exportScheduleDOCXModele, ModeleExportOptions, DEFAULT_MODELE_OPTIONS } from "@/lib/exportDocxModele";
+import { exportScheduleDOCXModele, ModeleExportOptions, DEFAULT_MODELE_OPTIONS, MODELE_THEMES, parseRapporteursFile } from "@/lib/exportDocxModele";
 import { exportBookletPDF } from "@/lib/exportBooklet";
 import { exportBadgesPDF, buildBadgesFromSchedule } from "@/lib/exportBadges";
 import { BadgesConfigDialog } from "@/components/BadgesConfigDialog";
@@ -877,7 +877,49 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
                   <Label className="text-xs text-muted-foreground">Date du jour 1 (pour écrire « mercredi 28 octobre 2026 » sur chaque jour)</Label>
                   <Input type="date" value={modeleOpts.firstDayDate || ""} onChange={(e) => setModeleOpts((p) => ({ ...p, firstDayDate: e.target.value }))} />
                 </div>
-                <p className="text-xs text-muted-foreground">Le logo chargé est utilisé s'il existe, sinon le logo du modèle. Format paysage, un jour par page. « Rapporteurs » = président(s) de séance.</p>
+                <div className="space-y-2 pt-1">
+                  <Label className="text-sm">Design / couleurs</Label>
+                  <Select value={modeleOpts.theme || "modele"} onValueChange={(v) => setModeleOpts((p) => ({ ...p, theme: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {MODELE_THEMES.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          <span className="flex items-center gap-2">
+                            <span className="inline-flex h-3 w-8 rounded overflow-hidden border border-border">
+                              <span style={{ background: `#${t.primary}`, width: "50%" }} /><span style={{ background: `#${t.banner}`, width: "25%" }} /><span style={{ background: `#${t.section}`, width: "25%" }} />
+                            </span>{t.label}
+                          </span>
+                        </SelectItem>
+                      ))}
+                      <SelectItem value="custom">Personnalisé (2 couleurs au choix)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {modeleOpts.theme === "custom" && (
+                    <div className="flex flex-wrap items-center gap-4">
+                      <label className="flex items-center gap-2 text-xs">Principale <input type="color" value={modeleOpts.customPrimary || "#1e3a8a"} onChange={(e) => setModeleOpts((p) => ({ ...p, customPrimary: e.target.value }))} /></label>
+                      <label className="flex items-center gap-2 text-xs">Accent <input type="color" value={modeleOpts.customAccent || "#2563eb"} onChange={(e) => setModeleOpts((p) => ({ ...p, customAccent: e.target.value }))} /></label>
+                      <Select value={modeleOpts.customDeco || "bleu"} onValueChange={(v) => setModeleOpts((p) => ({ ...p, customDeco: v }))}>
+                        <SelectTrigger className="h-8 w-48 text-xs"><SelectValue placeholder="Décoration" /></SelectTrigger>
+                        <SelectContent>{MODELE_THEMES.map((t) => <SelectItem key={t.id} value={t.id}>Décor : {t.label}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-2 pt-1">
+                  <Label className="text-sm">Rapporteurs (CSV ou TXT)</Label>
+                  <p className="text-xs text-muted-foreground">Une colonne : un rapporteur (ou « A et B ») par ligne, attribué aux séances dans l'ordre. Deux colonnes <code>moderateur;rapporteurs</code> : associé au modérateur de chaque séance.</p>
+                  {modeleOpts.rapporteurs ? (
+                    <div className="flex items-center gap-3 text-xs">
+                      <span>{Object.keys(modeleOpts.rapporteurs.byModerator).length} association(s), {modeleOpts.rapporteurs.list.length} nom(s) en liste</span>
+                      <Button variant="outline" size="sm" onClick={() => setModeleOpts((p) => ({ ...p, rapporteurs: undefined }))}>Retirer</Button>
+                    </div>
+                  ) : (
+                    <Button variant="outline" size="sm" className="gap-2 w-full" asChild>
+                      <label><Upload className="h-4 w-4" />Charger les rapporteurs<input type="file" accept=".csv,.txt,text/csv,text/plain" className="hidden" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; const data = parseRapporteursFile(await file.text()); const n = Object.keys(data.byModerator).length + data.list.length; if (!n) toast.error("Aucun rapporteur trouvé dans le fichier"); else { setModeleOpts((p) => ({ ...p, rapporteurs: data })); toast.success(`${n} entrée(s) chargée(s)`); } e.target.value = ""; }} /></label>
+                    </Button>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">Le logo chargé est utilisé s'il existe, sinon le logo du modèle. Format paysage, un jour par page. Sans fichier, « Rapporteurs » = président(s) de séance.</p>
                 {customLogoDataUrl ? (
                   <div className="flex items-center gap-3">
                     <img src={customLogoDataUrl} alt="Logo" className="h-10 w-10 object-contain rounded border border-border" />
