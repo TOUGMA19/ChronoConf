@@ -20,6 +20,7 @@ const EditArticleDialog = ({ open, onOpenChange, article, onUpdated }: EditArtic
   const [authors, setAuthors] = useState("");
   const [moderator, setModerator] = useState("");
   const [sessionChair, setSessionChair] = useState("");
+  const [rapporteurs, setRapporteurs] = useState("");
   const [abstract, setAbstract] = useState("");
   const [category, setCategory] = useState("");
   const [customCategory, setCustomCategory] = useState("");
@@ -37,6 +38,7 @@ const EditArticleDialog = ({ open, onOpenChange, article, onUpdated }: EditArtic
       setAuthors(article.authors);
       setModerator(article.moderator);
       setSessionChair(article.sessionChair);
+      setRapporteurs(article.rapporteurs || "");
       setAbstract(article.abstract);
       setCategory(categories.includes(article.category) ? article.category : "__custom__");
       setCustomCategory(categories.includes(article.category) ? "" : article.category);
@@ -67,6 +69,7 @@ const EditArticleDialog = ({ open, onOpenChange, article, onUpdated }: EditArtic
       authors: authors.trim(),
       moderator: moderator.trim(),
       sessionChair: sessionChair.trim(),
+      rapporteurs: rapporteurs.trim(),
       abstract: abstract.trim(),
       category: finalCategory,
       duration: parseInt(duration) || 20,
@@ -102,6 +105,10 @@ const EditArticleDialog = ({ open, onOpenChange, article, onUpdated }: EditArtic
           <div className="space-y-2">
             <Label htmlFor="edit-sessionChair">Président de session</Label>
             <Input id="edit-sessionChair" value={sessionChair} onChange={(e) => setSessionChair(e.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="edit-rapporteurs">Rapporteur(s)</Label>
+            <Input id="edit-rapporteurs" value={rapporteurs} onChange={(e) => setRapporteurs(e.target.value)} placeholder="Ex: Dr A et Dr B" />
           </div>
           <div className="space-y-2">
             <Label htmlFor="edit-abstract">Résumé</Label>
