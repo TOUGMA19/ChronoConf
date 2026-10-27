@@ -10,6 +10,7 @@ import {
   clearSchedule, clearAllData, getCategories, addCategory, removeCategory, clearCategories,
   getModerators, addModerator, addModerators, removeModerator, clearModerators,
   getSessionChairs, addSessionChair, addSessionChairs, removeSessionChair, clearSessionChairs,
+  getRapporteurs, addRapporteur, addRapporteurs, removeRapporteur, clearRapporteurs,
   getPresentationTypes, getOrganizers, Article, SpecialSlot, DayHours, loadFromBlob, exportBlob,
   resetForNewProject, setArticlesDuration, DurationScope,
 } from "@/lib/conference";
@@ -33,7 +34,7 @@ import PresentationTypesDialog from "@/components/PresentationTypesDialog";
 import StatsDashboard from "@/components/StatsDashboard";
 import { exportSchedulePDF, exportSchedulePDFByRoom, PdfExportOptions, DEFAULT_PDF_OPTIONS } from "@/lib/exportPdf";
 import { exportScheduleDOCX } from "@/lib/exportDocx";
-import { exportScheduleDOCXModele, ModeleExportOptions, DEFAULT_MODELE_OPTIONS, MODELE_THEMES, parseRapporteursFile } from "@/lib/exportDocxModele";
+import { exportScheduleDOCXModele, ModeleExportOptions, DEFAULT_MODELE_OPTIONS, MODELE_PALETTES, MODELE_DESIGNS } from "@/lib/exportDocxModele";
 import { exportBookletPDF } from "@/lib/exportBooklet";
 import { exportBadgesPDF, buildBadgesFromSchedule } from "@/lib/exportBadges";
 import { BadgesConfigDialog } from "@/components/BadgesConfigDialog";
@@ -140,6 +141,7 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
   const [moderatorsDialogOpen, setModeratorsDialogOpen] = useState(false);
   const [categoriesDialogOpen, setCategoriesDialogOpen] = useState(false);
   const [chairsDialogOpen, setChairsDialogOpen] = useState(false);
+  const [rapporteursDialogOpen, setRapporteursDialogOpen] = useState(false);
   const [organizersDialogOpen, setOrganizersDialogOpen] = useState(false);
   const [verifyDialogOpen, setVerifyDialogOpen] = useState(false);
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
@@ -178,6 +180,10 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
 
   const [newModerator, setNewModerator] = useState("");
   const [newChair, setNewChair] = useState("");
+  const [newRapporteur, setNewRapporteur] = useState("");
+  const [rapporteurThemeMap, setRapporteurThemeMap] = useState<Record<string, string[]>>({});
+  const [resetRapporteurs, setResetRapporteurs] = useState(true);
+  const [rapporteursPerSession, setRapporteursPerSession] = useState("2");
   const [moderatorThemeMap, setModeratorThemeMap] = useState<Record<string, string[]>>({});
   const [chairThemeMap, setChairThemeMap] = useState<Record<string, string[]>>({});
   const [chairRoomMap, setChairRoomMap] = useState<Record<string, string[]>>({});
@@ -190,6 +196,7 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
   const moderatorsList = useMemo(() => getModerators(), [refreshKey]);
   const categoriesList = useMemo(() => getCategories(), [refreshKey]);
   const chairsList = useMemo(() => getSessionChairs(), [refreshKey]);
+  const rapporteursList = useMemo(() => getRapporteurs(), [refreshKey]);
   const organizersList = useMemo(() => getOrganizers(), [refreshKey]);
   const unscheduled = useMemo(() => getUnscheduledArticles(schedule, articles), [schedule, articles]);
   const unscheduledIds = useMemo(() => new Set(unscheduled.map((a) => a.id)), [unscheduled]);
@@ -273,6 +280,10 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
       chairThemeMap: Object.keys(chairThemeMap).length > 0 ? chairThemeMap : undefined,
       chairRoomMap: Object.keys(chairRoomMap).length > 0 ? chairRoomMap : undefined,
       resetChairs,
+      rapporteursList: rapporteursList.length > 0 ? rapporteursList : undefined,
+      rapporteurThemeMap: Object.keys(rapporteurThemeMap).length > 0 ? rapporteurThemeMap : undefined,
+      resetRapporteurs,
+      rapporteursPerSession: parseInt(rapporteursPerSession) || 2,
       themeRoomMap: Object.keys(themeRoomMap).length > 0 ? themeRoomMap : undefined,
     });
     setSelectedDay(0);
@@ -335,6 +346,23 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
     };
     reader.readAsText(file); e.target.value = "";
   };
+  const handleAddRapporteur = () => { if (!newRapporteur.trim()) return; addRapporteur(newRapporteur); setNewRapporteur(""); setRefreshKey((k) => k + 1); };
+  const handleImportRapporteurs = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const lines = text.split(/[\r\n]+/).map((l) => l.trim()).filter(Boolean);
+      const start = /^(nom|name|rapporteur|rapporteurs)/i.test(lines[0] || "") ? 1 : 0;
+      const names = lines.slice(start).map((l) => l.split(/[;,\t]/)[0].trim().replace(/^["']|["']$/g, "")).filter(Boolean);
+      const count = addRapporteurs(names);
+      setRefreshKey((k) => k + 1);
+      toast.success(`${count} rapporteur${count > 1 ? "s" : ""} importé${count > 1 ? "s" : ""}`);
+    };
+    reader.readAsText(file); e.target.value = "";
+  };
+  const handleRemoveRapporteur = (name: string) => { removeRapporteur(name); setRefreshKey((k) => k + 1); };
+  const handleClearRapporteurs = () => { clearRapporteurs(); setRefreshKey((k) => k + 1); toast.success("Rapporteurs vidés"); };
   const handleRemoveChair = (name: string) => { removeSessionChair(name); setRefreshKey((k) => k + 1); };
   const handleClearChairs = () => { clearSessionChairs(); setRefreshKey((k) => k + 1); toast.success("Présidents vidés"); };
 
@@ -373,6 +401,9 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
             </Button>
             <Button variant="outline" onClick={() => setModeratorsDialogOpen(true)} className="gap-2">
               <UserCheck className="h-4 w-4" /><span className="hidden sm:inline">Modérateurs ({moderatorsList.length})</span>
+            </Button>
+            <Button variant="outline" onClick={() => setRapporteursDialogOpen(true)} className="gap-2">
+              <FileText className="h-4 w-4" /><span className="hidden sm:inline">Rapporteurs ({rapporteursList.length})</span>
             </Button>
             <Button variant="outline" onClick={() => setChairsDialogOpen(true)} className="gap-2">
               <GraduationCap className="h-4 w-4" /><span className="hidden sm:inline">Présidents ({chairsList.length})</span>
@@ -554,6 +585,16 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
           <h2 className="font-display font-semibold text-foreground flex items-center gap-2">
             <Zap className="h-5 w-5 text-accent" />Générer le chronogramme
           </h2>
+          {rapporteursList.length > 0 && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <FileText className="h-4 w-4" />
+              {rapporteursList.length} rapporteur{rapporteursList.length > 1 ? "s" : ""} seront assignés automatiquement
+              <span className="flex items-center gap-1 ml-2">
+                <Label htmlFor="rapPerSession" className="text-xs">par séance :</Label>
+                <Input id="rapPerSession" type="number" min="1" max="4" value={rapporteursPerSession} onChange={(e) => setRapporteursPerSession(e.target.value)} className="h-7 w-16" />
+              </span>
+            </div>
+          )}
           {moderatorsList.length > 0 && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <UserCheck className="h-4 w-4" />
@@ -591,6 +632,10 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
           <div className="flex items-center gap-2">
             <Checkbox id="resetModerators" checked={resetModerators} onCheckedChange={(c) => setResetModerators(c === true)} />
             <Label htmlFor="resetModerators" className="text-sm cursor-pointer">Réinitialiser les modérateurs existants lors de la génération</Label>
+          </div>
+          <div className="flex items-center gap-2">
+            <Checkbox id="resetRapporteurs" checked={resetRapporteurs} onCheckedChange={(c) => setResetRapporteurs(c === true)} />
+            <Label htmlFor="resetRapporteurs" className="text-sm cursor-pointer">Réinitialiser les rapporteurs existants lors de la génération</Label>
           </div>
           <div className="flex items-center gap-2">
             <Checkbox id="resetChairs" checked={resetChairs} onCheckedChange={(c) => setResetChairs(c === true)} />
@@ -744,6 +789,71 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
           </div>
         </DialogContent>
       </Dialog>
+      {/* Rapporteurs Dialog */}
+      <Dialog open={rapporteursDialogOpen} onOpenChange={setRapporteursDialogOpen}>
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Gestion des rapporteurs</DialogTitle>
+            <DialogDescription>Ajoutez des rapporteurs et assignez-les à des thématiques spécifiques.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Ajouter un rapporteur</Label>
+              <div className="flex gap-2">
+                <Input placeholder="Nom du rapporteur" value={newRapporteur} onChange={(e) => setNewRapporteur(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleAddRapporteur(); }} />
+                <Button onClick={handleAddRapporteur} size="sm" className="shrink-0"><Plus className="h-4 w-4" /></Button>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" className="gap-2 w-full" asChild>
+                <label><Upload className="h-4 w-4" />Importer depuis un fichier (CSV/TXT)<input type="file" accept=".csv,.txt" className="hidden" onChange={handleImportRapporteurs} /></label>
+              </Button>
+            </div>
+            {rapporteursList.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">Aucun rapporteur ajouté</p>
+            ) : (
+              <div className="space-y-1 max-h-40 overflow-y-auto">
+                {rapporteursList.map((m) => (
+                  <div key={m} className="flex items-center justify-between px-3 py-2 rounded-lg bg-muted/50">
+                    <span className="text-sm text-foreground">{m}</span>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => handleRemoveRapporteur(m)}><X className="h-3.5 w-3.5" /></Button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {rapporteursList.length > 0 && <Button variant="outline" size="sm" onClick={handleClearRapporteurs} className="w-full text-destructive hover:text-destructive">Vider la liste</Button>}
+            {rapporteursList.length > 0 && (
+              <div className="space-y-3 border-t border-border pt-4">
+                <Label className="text-sm font-medium flex items-center gap-2"><UserCheck className="h-4 w-4 text-accent" />Assignation par thématique</Label>
+                <div className="space-y-3">
+                  {categoriesList.map((cat) => {
+                    const assigned = rapporteurThemeMap[cat] || [];
+                    return (
+                      <div key={cat} className="space-y-1.5">
+                        <p className="text-sm font-medium text-foreground">{cat}</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {rapporteursList.map((mod) => {
+                            const isSelected = assigned.includes(mod);
+                            return (
+                              <Badge key={mod} variant="outline" className={cn("cursor-pointer transition-colors text-xs", isSelected ? "bg-accent/15 border-accent/50 text-accent hover:bg-accent/25" : "bg-muted/30 border-border text-muted-foreground hover:bg-muted/50")}
+                                onClick={() => setRapporteurThemeMap((prev) => { const current = prev[cat] || []; const next = isSelected ? current.filter((m) => m !== mod) : [...current, mod]; return { ...prev, [cat]: next }; })}>
+                                {mod}
+                              </Badge>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            <div className="pt-4 border-t border-border">
+              <Button onClick={() => { setRapporteursDialogOpen(false); toast.success("Rapporteurs validés"); }} className="w-full gap-2 gradient-accent text-accent-foreground"><Check className="h-4 w-4" />Valider</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Categories Dialog */}
       <Dialog open={categoriesDialogOpen} onOpenChange={setCategoriesDialogOpen}>
@@ -878,11 +988,20 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
                   <Input type="date" value={modeleOpts.firstDayDate || ""} onChange={(e) => setModeleOpts((p) => ({ ...p, firstDayDate: e.target.value }))} />
                 </div>
                 <div className="space-y-2 pt-1">
-                  <Label className="text-sm">Design / couleurs</Label>
-                  <Select value={modeleOpts.theme || "modele"} onValueChange={(v) => setModeleOpts((p) => ({ ...p, theme: v }))}>
+                  <Label className="text-sm">Design (décor : polices, filets, bandeaux, bordures)</Label>
+                  <Select value={modeleOpts.design || "modele"} onValueChange={(v) => setModeleOpts((p) => ({ ...p, design: v }))}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {MODELE_THEMES.map((t) => (
+                      {MODELE_DESIGNS.map((d) => <SelectItem key={d.id} value={d.id}>{d.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2 pt-1">
+                  <Label className="text-sm">Couleurs</Label>
+                  <Select value={modeleOpts.palette || "modele"} onValueChange={(v) => setModeleOpts((p) => ({ ...p, palette: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {MODELE_PALETTES.map((t) => (
                         <SelectItem key={t.id} value={t.id}>
                           <span className="flex items-center gap-2">
                             <span className="inline-flex h-3 w-8 rounded overflow-hidden border border-border">
@@ -891,35 +1010,17 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
                           </span>
                         </SelectItem>
                       ))}
-                      <SelectItem value="custom">Personnalisé (2 couleurs au choix)</SelectItem>
+                      <SelectItem value="custom">Personnalisées (2 couleurs au choix)</SelectItem>
                     </SelectContent>
                   </Select>
-                  {modeleOpts.theme === "custom" && (
+                  {modeleOpts.palette === "custom" && (
                     <div className="flex flex-wrap items-center gap-4">
                       <label className="flex items-center gap-2 text-xs">Principale <input type="color" value={modeleOpts.customPrimary || "#1e3a8a"} onChange={(e) => setModeleOpts((p) => ({ ...p, customPrimary: e.target.value }))} /></label>
                       <label className="flex items-center gap-2 text-xs">Accent <input type="color" value={modeleOpts.customAccent || "#2563eb"} onChange={(e) => setModeleOpts((p) => ({ ...p, customAccent: e.target.value }))} /></label>
-                      <Select value={modeleOpts.customDeco || "bleu"} onValueChange={(v) => setModeleOpts((p) => ({ ...p, customDeco: v }))}>
-                        <SelectTrigger className="h-8 w-48 text-xs"><SelectValue placeholder="Décoration" /></SelectTrigger>
-                        <SelectContent>{MODELE_THEMES.map((t) => <SelectItem key={t.id} value={t.id}>Décor : {t.label}</SelectItem>)}</SelectContent>
-                      </Select>
                     </div>
                   )}
                 </div>
-                <div className="space-y-2 pt-1">
-                  <Label className="text-sm">Rapporteurs (CSV ou TXT)</Label>
-                  <p className="text-xs text-muted-foreground">Une colonne : un rapporteur (ou « A et B ») par ligne, attribué aux séances dans l'ordre. Deux colonnes <code>moderateur;rapporteurs</code> : associé au modérateur de chaque séance.</p>
-                  {modeleOpts.rapporteurs ? (
-                    <div className="flex items-center gap-3 text-xs">
-                      <span>{Object.keys(modeleOpts.rapporteurs.byModerator).length} association(s), {modeleOpts.rapporteurs.list.length} nom(s) en liste</span>
-                      <Button variant="outline" size="sm" onClick={() => setModeleOpts((p) => ({ ...p, rapporteurs: undefined }))}>Retirer</Button>
-                    </div>
-                  ) : (
-                    <Button variant="outline" size="sm" className="gap-2 w-full" asChild>
-                      <label><Upload className="h-4 w-4" />Charger les rapporteurs<input type="file" accept=".csv,.txt,text/csv,text/plain" className="hidden" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; const data = parseRapporteursFile(await file.text()); const n = Object.keys(data.byModerator).length + data.list.length; if (!n) toast.error("Aucun rapporteur trouvé dans le fichier"); else { setModeleOpts((p) => ({ ...p, rapporteurs: data })); toast.success(`${n} entrée(s) chargée(s)`); } e.target.value = ""; }} /></label>
-                    </Button>
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground">Le logo chargé est utilisé s'il existe, sinon le logo du modèle. Format paysage, un jour par page. Sans fichier, « Rapporteurs » = président(s) de séance.</p>
+                <p className="text-xs text-muted-foreground">Le logo chargé est utilisé s'il existe, sinon le logo du modèle. Format paysage, un jour par page. La colonne « Rapporteurs » vient du bouton Rapporteurs (à défaut : président de séance).</p>
                 {customLogoDataUrl ? (
                   <div className="flex items-center gap-3">
                     <img src={customLogoDataUrl} alt="Logo" className="h-10 w-10 object-contain rounded border border-border" />
