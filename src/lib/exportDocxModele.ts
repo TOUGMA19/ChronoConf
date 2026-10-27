@@ -25,22 +25,13 @@ export interface ModeleExportOptions {
   firstDayDate?: string;
   /** Logo (data URL PNG/JPG). À défaut, le logo du modèle est utilisé. */
   logoDataUrl?: string;
-  /** Identifiant du design (voir MODELE_THEMES) ou "custom" */
-  theme?: string;
+  /** Design = décor (polices, filets, bandeaux, bordures…) : id de MODELE_DESIGNS */
+  design?: string;
+  /** Couleurs : id de MODELE_PALETTES ou "custom" */
+  palette?: string;
   /** Couleurs du design « personnalisé » (#RRGGBB) */
   customPrimary?: string;
   customAccent?: string;
-  /** Décoration du design « personnalisé » : id d'un des designs (ex. "luxe") */
-  customDeco?: string;
-  /** Rapporteurs chargés depuis un fichier CSV/TXT (voir parseRapporteursFile) */
-  rapporteurs?: RapporteursData;
-}
-
-export interface RapporteursData {
-  /** moderateur normalisé -> rapporteurs */
-  byModerator: Record<string, string>;
-  /** liste simple, attribuée dans l'ordre aux séances */
-  list: string[];
 }
 
 export const DEFAULT_MODELE_OPTIONS: ModeleExportOptions = {
@@ -49,7 +40,8 @@ export const DEFAULT_MODELE_OPTIONS: ModeleExportOptions = {
   dateRange: "",
   location: "",
   firstDayDate: "",
-  theme: "modele",
+  design: "modele",
+  palette: "modele",
 };
 
 // ---- Designs (palettes) ----
@@ -108,7 +100,23 @@ const DECOS: Record<string, ModeleDeco> = {
   rose:     D({ font: "Segoe UI", rule: "dotted", header: "soft", title: "plain", grid: "double", zebra: true, pre: "✿ ", post: " ✿" }),
   minimal:  D({ font: "Calibri Light", rule: "single", header: "plain", title: "plain", grid: "horizontal", align: "left" }),
 };
-export const MODELE_THEMES: ModeleTheme[] = BASE_THEMES.map((t) => ({ ...t, deco: DECOS[t.id] || DECOS.modele }));
+/** Palettes de couleurs au choix (indépendantes du design) */
+export const MODELE_PALETTES: ModeleTheme[] = BASE_THEMES;
+/** Designs (décors) au choix (indépendants des couleurs) */
+export const MODELE_DESIGNS: { id: string; label: string }[] = [
+  { id: "modele", label: "Classique (filet double, titre souligné)" },
+  { id: "bleu", label: "Institutionnel (bandeaux pleins, lignes alternées)" },
+  { id: "bordeaux", label: "Élégant encadré (◆, bordures épaisses)" },
+  { id: "ardoise", label: "Épuré (sans filet, lignes horizontales)" },
+  { id: "violet", label: "Moderne (barre latérale, filet ondulé)" },
+  { id: "terre", label: "Chaleureux (tirets, pointillés)" },
+  { id: "nb", label: "Sobre (filet simple, grille classique)" },
+  { id: "emeraude", label: "Raffiné (triple filet, ❖)" },
+  { id: "ocean", label: "Marin (≈, grille pointillée)" },
+  { id: "luxe", label: "Prestige (bandeau noir, ★)" },
+  { id: "rose", label: "Romantique (✿, double ligne)" },
+  { id: "minimal", label: "Minimal (sans fioritures)" },
+];
 
 
 function mix(hex: string, withHex: string, t: number): string {
@@ -117,20 +125,21 @@ function mix(hex: string, withHex: string, t: number): string {
   return (ch(0) + ch(2) + ch(4)).toUpperCase();
 }
 function resolveTheme(o: ModeleExportOptions): ModeleTheme {
-  if (o.theme === "custom") {
+  const deco = DECOS[o.design || "modele"] || DECOS.modele;
+  if (o.palette === "custom") {
     const p = (o.customPrimary || "#1E3A8A").replace("#", ""), a = (o.customAccent || "#2563EB").replace("#", "");
     return {
       id: "custom", label: "Personnalisé", acronym: a, title: p, rule: a, primary: p, banner: a,
       section: mix(a, "FFFFFF", 0.7), sectionText: mix(p, "000000", 0.4),
-      headFill: mix(a, "FFFFFF", 0.85), headFill2: mix(a, "FFFFFF", 0.93), line: mix(p, "000000", 0.3),
-      deco: DECOS[o.customDeco || "bleu"] || DECOS.bleu,
+      headFill: mix(a, "FFFFFF", 0.85), headFill2: mix(a, "FFFFFF", 0.93), line: mix(p, "000000", 0.3), deco,
     };
   }
-  return MODELE_THEMES.find((t) => t.id === o.theme) || MODELE_THEMES[0];
+  const pal = BASE_THEMES.find((t) => t.id === o.palette) || BASE_THEMES[0];
+  return { ...pal, deco };
 }
 
 // Palette courante (positionnée au début de chaque génération)
-let T: ModeleTheme = MODELE_THEMES[0];
+let T: ModeleTheme = { ...BASE_THEMES[0], deco: DECOS.modele };
 const C = {
   get pink() { return T.acronym; }, get green() { return T.title; }, get rule() { return T.rule; },
   get navy() { return T.primary; }, get banner() { return T.banner; }, get bannerLight() { return T.section; },
@@ -401,7 +410,7 @@ const CW = [1000, 1700, 2500, 5000, 2100, CONTENT_W - 1000 - 1700 - 2500 - 5000 
 function commsTable(
   items: { article: Article; room: string; start: string; end: string }[],
   heading: string,
-  rapMap?: Map<string, string>,
+  rapOf: (a: Article) => string,
 ): Table {
   const rows: TableRow[] = [];
   rows.push(banner(heading, CW, C.navy));
@@ -412,7 +421,7 @@ function commsTable(
   }));
 
   // regroupement consécutif (même salle + même modérateur + mêmes rapporteurs) pour fusionner verticalement
-  const key = (x: typeof items[number]) => `${x.room}|${x.article.moderator || ""}|${x.article.sessionChair || ""}`;
+  const key = (x: typeof items[number]) => `${x.room}|${x.article.moderator || ""}|${rapOf(x.article)}`;
   let i = 0;
   while (i < items.length) {
     let j = i + 1;
@@ -431,7 +440,7 @@ function commsTable(
       if (k === i) {
         children.push(
           cell(a.moderator || "", { width: CW[4], rowSpan: span, align: "center", size: 16 }),
-          cell(rapMap?.get(key(it)) ?? (a.sessionChair || ""), { width: CW[5], rowSpan: span, align: "center", size: 16 }),
+          cell(rapOf(a), { width: CW[5], rowSpan: span, align: "center", size: 16 }),
         );
       }
       rows.push(new TableRow({ cantSplit: true, children }));
@@ -445,52 +454,6 @@ function commsTable(
     layout: TableLayoutType.FIXED,
     rows,
   });
-}
-
-// ---- Rapporteurs (CSV / TXT) ----
-const norm = (x: string) => (x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
-
-/**
- * Lit un fichier CSV/TXT de rapporteurs. Deux formats acceptés :
- *  - une colonne : un nom (ou « nom1 et nom2 ») par ligne → attribués dans l'ordre aux séances ;
- *  - deux colonnes (séparateur ; , ou tabulation) : « moderateur ; rapporteurs » → associés par nom du modérateur.
- * Une ligne d'en-tête (contenant « moder » ou « rapport ») est ignorée. Plusieurs lignes pour un même modérateur sont réunies par « et ».
- */
-export function parseRapporteursFile(text: string): RapporteursData {
-  const out: RapporteursData = { byModerator: {}, list: [] };
-  const rows = text.replace(/^\uFEFF/, "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  rows.forEach((line, i) => {
-    const sep = line.includes(";") ? ";" : line.includes("\t") ? "\t" : line.includes(",") && line.split(",").length === 2 ? "," : "";
-    const cols = (sep ? line.split(sep) : [line]).map((c) => c.trim().replace(/^"|"$/g, "").trim());
-    if (i === 0 && /moder|rapport/i.test(line)) return;
-    if (cols.length >= 2 && cols[0] && cols[1]) {
-      const k = norm(cols[0]);
-      out.byModerator[k] = out.byModerator[k] ? `${out.byModerator[k]} et ${cols[1]}` : cols[1];
-    } else if (cols[0]) out.list.push(cols[0]);
-  });
-  return out;
-}
-
-/** Applique les rapporteurs chargés : pour chaque séance (salle + modérateur + président), détermine le texte à afficher. */
-function applyRapporteurs(
-  items: { article: Article; room: string; start: string; end: string }[],
-  data: RapporteursData | undefined,
-  state: { next: number },
-): Map<string, string> {
-  const res = new Map<string, string>();
-  const keyOf = (x: typeof items[number]) => `${x.room}|${x.article.moderator || ""}|${x.article.sessionChair || ""}`;
-  for (const it of items) {
-    const k = keyOf(it);
-    if (res.has(k)) continue;
-    let val = it.article.sessionChair || "";
-    if (data) {
-      const byMod = data.byModerator[norm(it.article.moderator || "")];
-      if (byMod) val = byMod;
-      else if (data.list.length && state.next < data.list.length) val = data.list[state.next++];
-    }
-    res.set(k, val);
-  }
-  return res;
 }
 
 const toMin = (t: string) => { const [h, m] = (t || "0:0").split(":").map(Number); return h * 60 + (m || 0); };
@@ -519,7 +482,9 @@ export function buildModeleDocument(
     });
 
   const sections: any[] = [];
-  const rapState = { next: 0 };
+  // Rapporteurs : champ « rapporteurs » de la communication ; à défaut (aucun renseigné), président de séance
+  const anyRap = articles.some((a) => (a.rapporteurs || "").trim());
+  const rapOf = (a: Article) => (anyRap ? a.rapporteurs || "" : a.sessionChair || "");
 
   for (let day = 0; day < schedule.days; day++) {
     const dateText = dayLabel(opts.firstDayDate, day);
@@ -587,7 +552,7 @@ export function buildModeleDocument(
         const cat = b.items[0].article.category;
         const n = cat ? themeNumber.get(cat) : undefined;
         const heading = cat ? `COMMUNICATIONS — THÉMATIQUE ${n} : ${cat}` : "COMMUNICATIONS";
-        children.push(commsTable(b.items, heading, applyRapporteurs(b.items, opts.rapporteurs, rapState)));
+        children.push(commsTable(b.items, heading, rapOf));
       }
     });
 

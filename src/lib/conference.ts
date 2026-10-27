@@ -11,6 +11,7 @@ export interface Article {
   authors: string;
   moderator: string;
   sessionChair: string;
+  rapporteurs?: string; // rapporteur(s) de la séance, ex. « Dr A et Dr B »
   abstract: string;
   category: string;
   duration: number; // minutes
@@ -83,6 +84,7 @@ interface PersistedData {
   categories: string[];
   moderators: string[];
   sessionChairs: string[];
+  rapporteurs?: string[];
   organizers?: Organizer[];
   presentationTypes?: string[];
   savedAt: number;
@@ -91,7 +93,7 @@ interface PersistedData {
 function saveToStorage(): void {
   try {
     const data: PersistedData = {
-      articles, schedule, categories, moderators, sessionChairs, organizers, presentationTypes,
+      articles, schedule, categories, moderators, sessionChairs, rapporteurs: rapporteursList, organizers, presentationTypes,
       savedAt: Date.now(),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -122,6 +124,7 @@ function loadFromStorage(): void {
     categories = Array.isArray(data.categories) ? data.categories : [];
     moderators = Array.isArray(data.moderators) ? data.moderators : [];
     sessionChairs = Array.isArray(data.sessionChairs) ? data.sessionChairs : [];
+    rapporteursList = Array.isArray(data.rapporteurs) ? data.rapporteurs : [];
     organizers = Array.isArray(data.organizers)
       ? data.organizers.filter((o: any) => o && typeof o.name === "string").map((o: any) => ({ name: String(o.name), role: String(o.role || "") }))
       : [];
@@ -161,6 +164,7 @@ let articles: Article[] = [];
 let schedule: ConferenceSchedule | null = null;
 let moderators: string[] = [];
 let sessionChairs: string[] = [];
+let rapporteursList: string[] = [];
 let organizers: Organizer[] = [];
 let presentationTypes: string[] = [...DEFAULT_PRESENTATION_TYPES];
 
@@ -326,6 +330,38 @@ export function clearSessionChairs(): void {
   saveToStorage();
 }
 
+// Rapporteurs management
+export function getRapporteurs(): string[] {
+  return [...rapporteursList];
+}
+export function addRapporteur(name: string): void {
+  const trimmed = name.trim();
+  if (trimmed && !rapporteursList.includes(trimmed)) {
+    rapporteursList = [...rapporteursList, trimmed];
+    saveToStorage();
+  }
+}
+export function addRapporteurs(names: string[]): number {
+  let count = 0;
+  names.forEach((n) => {
+    const trimmed = n.trim();
+    if (trimmed && !rapporteursList.includes(trimmed)) {
+      rapporteursList = [...rapporteursList, trimmed];
+      count++;
+    }
+  });
+  if (count > 0) saveToStorage();
+  return count;
+}
+export function removeRapporteur(name: string): void {
+  rapporteursList = rapporteursList.filter((c) => c !== name);
+  saveToStorage();
+}
+export function clearRapporteurs(): void {
+  rapporteursList = [];
+  saveToStorage();
+}
+
 // ===== Organizers (with roles) =====
 export function getOrganizers(): Organizer[] {
   return organizers.map((o) => ({ ...o }));
@@ -421,6 +457,7 @@ export function clearAllData(): void {
   categories = [];
   moderators = [];
   sessionChairs = [];
+  rapporteursList = [];
   presentationTypes = [...DEFAULT_PRESENTATION_TYPES];
   localStorage.removeItem(STORAGE_KEY);
 }
@@ -437,6 +474,7 @@ export function resetForNewProject(): void {
   categories = [];
   moderators = [];
   sessionChairs = [];
+  rapporteursList = [];
   organizers = [];
   presentationTypes = [...DEFAULT_PRESENTATION_TYPES];
   try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
@@ -657,7 +695,7 @@ function fmt(minutes: number): string {
 // Improved schedule generation handling 100+ articles
 export function generateScheduleLocally(
   conferenceArticles: Article[],
-  config: { name: string; days: number; rooms: string[]; startHour: number; endHour: number; dayHours?: DayHours[]; breakMinutes?: number; lunchStart?: string; lunchEnd?: string; moderatorsList?: string[]; moderatorThemeMap?: Record<string, string[]>; resetModerators?: boolean; chairsList?: string[]; chairThemeMap?: Record<string, string[]>; chairRoomMap?: Record<string, string[]>; resetChairs?: boolean; themeRoomMap?: Record<string, string | string[]> }
+  config: { name: string; days: number; rooms: string[]; startHour: number; endHour: number; dayHours?: DayHours[]; breakMinutes?: number; lunchStart?: string; lunchEnd?: string; moderatorsList?: string[]; moderatorThemeMap?: Record<string, string[]>; resetModerators?: boolean; chairsList?: string[]; chairThemeMap?: Record<string, string[]>; chairRoomMap?: Record<string, string[]>; resetChairs?: boolean; rapporteursList?: string[]; rapporteurThemeMap?: Record<string, string[]>; resetRapporteurs?: boolean; rapporteursPerSession?: number; themeRoomMap?: Record<string, string | string[]> }
 ): ConferenceSchedule {
   const accepted = conferenceArticles.filter((a) => a.status === "accepted");
   const slots: ScheduleSlot[] = [];
@@ -916,6 +954,17 @@ export function generateScheduleLocally(
     }
   }
 
+  // Reset rapporteurs if requested
+  if (config.resetRapporteurs) {
+    for (const slot of slots) {
+      const art = articleById.get(slot.articleId);
+      if (art) {
+        art.rapporteurs = "";
+        mutations[art.id] = { ...mutations[art.id], rapporteurs: "" };
+      }
+    }
+  }
+
   // Group slots by (day, room) and sort chronologically so a single
   // moderator/chair handles consecutive presentations of the same theme
   // before being replaced (avoids "pell-mell" assignments).
@@ -1024,6 +1073,53 @@ export function generateScheduleLocally(
     }
   }
 
+  // Auto-assign rapporteurs (même logique de continuité que les modérateurs ; N rapporteurs par séance)
+  const rapList = config.rapporteursList ?? rapporteursList;
+  const rapMapping = config.rapporteurThemeMap ?? {};
+  const hasRapMapping = Object.keys(rapMapping).some((k) => (rapMapping[k] || []).length > 0);
+  const perSession = Math.max(1, Math.min(4, Math.floor(config.rapporteursPerSession ?? 2)));
+
+  if (hasRapMapping || rapList.length > 0) {
+    const themeRapIdx: Record<string, number> = {};
+    let globalRapIdx = 0;
+    const pick = (pool: string[], start: number) => {
+      const n = Math.min(perSession, pool.length);
+      return Array.from({ length: n }, (_, k) => pool[(start + k) % pool.length]).join(" et ");
+    };
+
+    for (const arr of groups.values()) {
+      let currentRap = "";
+      let currentCat: string | null = null;
+      for (const slot of arr) {
+        const art = articleById.get(slot.articleId);
+        if (!art) continue;
+        if (art.rapporteurs) {
+          currentRap = art.rapporteurs;
+          currentCat = art.category;
+          continue;
+        }
+        if (currentCat !== art.category || !currentRap) {
+          const themeRaps = rapMapping[art.category];
+          if (themeRaps && themeRaps.length > 0) {
+            const i = themeRapIdx[art.category] ?? 0;
+            currentRap = pick(themeRaps, i);
+            themeRapIdx[art.category] = i + Math.min(perSession, themeRaps.length);
+          } else if (rapList.length > 0) {
+            currentRap = pick(rapList, globalRapIdx);
+            globalRapIdx += Math.min(perSession, rapList.length);
+          } else {
+            currentRap = "";
+          }
+          currentCat = art.category;
+        }
+        if (currentRap) {
+          art.rapporteurs = currentRap;
+          mutations[art.id] = { ...mutations[art.id], rapporteurs: currentRap };
+        }
+      }
+    }
+  }
+
   // Apply all mutations in a single pass
   if (Object.keys(mutations).length > 0) {
     articles = articles.map((a) => mutations[a.id] ? { ...a, ...mutations[a.id] } : a);
@@ -1057,6 +1153,7 @@ export function exportBlob(): Record<string, unknown> {
     categories,
     moderators,
     sessionChairs,
+    rapporteurs: rapporteursList,
     organizers,
     presentationTypes,
     savedAt: Date.now(),
@@ -1070,6 +1167,7 @@ export function loadFromBlob(blob: Record<string, unknown>): void {
   if (Array.isArray(blob.categories)) categories = blob.categories as string[];
   if (Array.isArray(blob.moderators)) moderators = blob.moderators as string[];
   if (Array.isArray(blob.sessionChairs)) sessionChairs = blob.sessionChairs as string[];
+  if (Array.isArray(blob.rapporteurs)) rapporteursList = blob.rapporteurs as string[];
   if (Array.isArray(blob.organizers)) organizers = blob.organizers as Organizer[];
   if (Array.isArray(blob.presentationTypes) && (blob.presentationTypes as string[]).length > 0)
     presentationTypes = blob.presentationTypes as string[];
