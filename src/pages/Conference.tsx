@@ -33,6 +33,7 @@ import PresentationTypesDialog from "@/components/PresentationTypesDialog";
 import StatsDashboard from "@/components/StatsDashboard";
 import { exportSchedulePDF, exportSchedulePDFByRoom, PdfExportOptions, DEFAULT_PDF_OPTIONS } from "@/lib/exportPdf";
 import { exportScheduleDOCX } from "@/lib/exportDocx";
+import { exportScheduleDOCXModele, ModeleExportOptions, DEFAULT_MODELE_OPTIONS } from "@/lib/exportDocxModele";
 import { exportBookletPDF } from "@/lib/exportBooklet";
 import { exportBadgesPDF, buildBadgesFromSchedule } from "@/lib/exportBadges";
 import { BadgesConfigDialog } from "@/components/BadgesConfigDialog";
@@ -144,7 +145,8 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
   const [typesDialogOpen, setTypesDialogOpen] = useState(false);
   const [pdfOptionsOpen, setPdfOptionsOpen] = useState(false);
-  const [pdfExportTarget, setPdfExportTarget] = useState<"linear" | "byRoom" | "docx">("linear");
+  const [pdfExportTarget, setPdfExportTarget] = useState<"linear" | "byRoom" | "docx" | "docxModele">("linear");
+  const [modeleOpts, setModeleOpts] = useState<ModeleExportOptions>(DEFAULT_MODELE_OPTIONS);
   const [specialSlotOpen, setSpecialSlotOpen] = useState(false);
   const [badgesConfigOpen, setBadgesConfigOpen] = useState(false);
   const [certificatesOpen, setCertificatesOpen] = useState(false);
@@ -848,21 +850,47 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
       <Dialog open={pdfOptionsOpen} onOpenChange={setPdfOptionsOpen}>
         <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{pdfExportTarget === "docx" ? "Options d'export DOCX" : pdfExportTarget === "byRoom" ? "PDF par salle" : "Options d'export PDF"}</DialogTitle>
+            <DialogTitle>{pdfExportTarget === "docxModele" ? "Programme DOCX (modèle officiel)" : pdfExportTarget === "docx" ? "Options d'export DOCX" : pdfExportTarget === "byRoom" ? "PDF par salle" : "Options d'export PDF"}</DialogTitle>
             <DialogDescription>{pdfExportTarget === "byRoom" ? "Une page par salle." : "Choisissez les colonnes et le format."}</DialogDescription>
           </DialogHeader>
           <div className="space-y-5">
             <div className="space-y-3">
               <Label className="text-sm font-medium">Cible d'export</Label>
-              <Select value={pdfExportTarget} onValueChange={(v) => setPdfExportTarget(v as "linear" | "byRoom" | "docx")}>
+              <Select value={pdfExportTarget} onValueChange={(v) => setPdfExportTarget(v as "linear" | "byRoom" | "docx" | "docxModele")}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="linear">PDF — chronogramme global</SelectItem>
                   <SelectItem value="byRoom">PDF — une page par salle</SelectItem>
                   <SelectItem value="docx">DOCX — document Word éditable</SelectItem>
+                  <SelectItem value="docxModele">DOCX — programme (modèle officiel)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+            {pdfExportTarget === "docxModele" && (
+              <div className="space-y-3 border-t border-border pt-4">
+                <Label className="text-sm font-medium">En-tête du programme</Label>
+                <Input placeholder="Sigle (ex. CI2026ENS)" value={modeleOpts.acronym} onChange={(e) => setModeleOpts((p) => ({ ...p, acronym: e.target.value }))} />
+                <Input placeholder="Titre de la manifestation" value={modeleOpts.eventTitle} onChange={(e) => setModeleOpts((p) => ({ ...p, eventTitle: e.target.value }))} />
+                <Input placeholder="Dates (ex. du 28 au 30 octobre 2026)" value={modeleOpts.dateRange} onChange={(e) => setModeleOpts((p) => ({ ...p, dateRange: e.target.value }))} />
+                <Input placeholder="Lieu (ex. Ouagadougou, Burkina Faso)" value={modeleOpts.location} onChange={(e) => setModeleOpts((p) => ({ ...p, location: e.target.value }))} />
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Date du jour 1 (pour écrire « mercredi 28 octobre 2026 » sur chaque jour)</Label>
+                  <Input type="date" value={modeleOpts.firstDayDate || ""} onChange={(e) => setModeleOpts((p) => ({ ...p, firstDayDate: e.target.value }))} />
+                </div>
+                <p className="text-xs text-muted-foreground">Le logo chargé est utilisé s'il existe, sinon le logo du modèle. Format paysage, un jour par page. « Rapporteurs » = président(s) de séance.</p>
+                {customLogoDataUrl ? (
+                  <div className="flex items-center gap-3">
+                    <img src={customLogoDataUrl} alt="Logo" className="h-10 w-10 object-contain rounded border border-border" />
+                    <Button variant="outline" size="sm" onClick={() => setCustomLogoDataUrl(null)}>Supprimer le logo</Button>
+                  </div>
+                ) : (
+                  <Button variant="outline" size="sm" className="gap-2 w-full" asChild>
+                    <label><Upload className="h-4 w-4" />Charger un logo (PNG/JPG)<input type="file" accept="image/png,image/jpeg" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (ev) => { setCustomLogoDataUrl(ev.target?.result as string); toast.success("Logo chargé"); }; reader.readAsDataURL(file); e.target.value = ""; }} /></label>
+                  </Button>
+                )}
+              </div>
+            )}
+            {pdfExportTarget !== "docxModele" && (<>
             <div className="space-y-3 border-t border-border pt-4">
               <Label className="text-sm font-medium">Colonnes à afficher</Label>
               <div className="grid grid-cols-2 gap-2">
@@ -920,15 +948,17 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
                 </>
               )}
             </div>
+            </>)}
             <Button onClick={() => {
               const s = getSchedule(); if (!s) return;
               const arts = getArticles();
-              if (pdfExportTarget === "docx") { exportScheduleDOCX(s, arts, pdfOptions, customLogoDataUrl || undefined); toast.success("Document Word généré !"); }
+              if (pdfExportTarget === "docxModele") { exportScheduleDOCXModele(s, arts, { ...modeleOpts, logoDataUrl: customLogoDataUrl || undefined }).then(() => toast.success("Programme Word (modèle) généré !")).catch((e) => { console.error(e); toast.error("Erreur lors de la génération du programme"); }); }
+              else if (pdfExportTarget === "docx") { exportScheduleDOCX(s, arts, pdfOptions, customLogoDataUrl || undefined); toast.success("Document Word généré !"); }
               else if (pdfExportTarget === "byRoom") { exportSchedulePDFByRoom(s, arts, pdfOptions, customLogoDataUrl || undefined); toast.success("PDF par salle exporté !"); }
               else { exportSchedulePDF(s, arts, pdfOptions, customLogoDataUrl || undefined); toast.success("PDF exporté !"); }
               setPdfOptionsOpen(false);
             }} className="w-full gap-2 gradient-accent text-accent-foreground">
-              <Download className="h-4 w-4" />{pdfExportTarget === "docx" ? "Exporter le DOCX" : "Exporter le PDF"}
+              <Download className="h-4 w-4" />{pdfExportTarget === "docx" || pdfExportTarget === "docxModele" ? "Exporter le DOCX" : "Exporter le PDF"}
             </Button>
           </div>
         </DialogContent>
