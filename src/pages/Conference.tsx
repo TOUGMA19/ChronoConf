@@ -11,6 +11,7 @@ import {
   getModerators, addModerator, addModerators, removeModerator, clearModerators,
   getSessionChairs, addSessionChair, addSessionChairs, removeSessionChair, clearSessionChairs,
   getRapporteurs, addRapporteur, addRapporteurs, removeRapporteur, clearRapporteurs,
+  getRapporteurGroups, addRapporteurGroup, removeRapporteurGroup,
   getPresentationTypes, getOrganizers, Article, SpecialSlot, DayHours, loadFromBlob, exportBlob,
   resetForNewProject, setArticlesDuration, DurationScope,
 } from "@/lib/conference";
@@ -197,6 +198,8 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
   const categoriesList = useMemo(() => getCategories(), [refreshKey]);
   const chairsList = useMemo(() => getSessionChairs(), [refreshKey]);
   const rapporteursList = useMemo(() => getRapporteurs(), [refreshKey]);
+  const rapporteurGroupsList = useMemo(() => getRapporteurGroups(), [refreshKey]);
+  const [groupDraft, setGroupDraft] = useState<string[]>([]);
   const organizersList = useMemo(() => getOrganizers(), [refreshKey]);
   const unscheduled = useMemo(() => getUnscheduledArticles(schedule, articles), [schedule, articles]);
   const unscheduledIds = useMemo(() => new Set(unscheduled.map((a) => a.id)), [unscheduled]);
@@ -284,6 +287,7 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
       rapporteurThemeMap: Object.keys(rapporteurThemeMap).length > 0 ? rapporteurThemeMap : undefined,
       resetRapporteurs,
       rapporteursPerSession: parseInt(rapporteursPerSession) || 2,
+      rapporteurGroups: rapporteurGroupsList,
       themeRoomMap: Object.keys(themeRoomMap).length > 0 ? themeRoomMap : undefined,
     });
     setSelectedDay(0);
@@ -590,7 +594,7 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
               <FileText className="h-4 w-4" />
               {rapporteursList.length} rapporteur{rapporteursList.length > 1 ? "s" : ""} seront assignés automatiquement
               <span className="flex items-center gap-1 ml-2">
-                <Label htmlFor="rapPerSession" className="text-xs">par séance :</Label>
+                <Label htmlFor="rapPerSession" className="text-xs">rapporteurs par séance (1 = seul, 2 = binôme, 3 = trinôme…) :</Label>
                 <Input id="rapPerSession" type="number" min="1" max="4" value={rapporteursPerSession} onChange={(e) => setRapporteursPerSession(e.target.value)} className="h-7 w-16" />
               </span>
             </div>
@@ -822,6 +826,35 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
               </div>
             )}
             {rapporteursList.length > 0 && <Button variant="outline" size="sm" onClick={handleClearRapporteurs} className="w-full text-destructive hover:text-destructive">Vider la liste</Button>}
+            {rapporteursList.length >= 2 && (
+              <div className="space-y-3 border-t border-border pt-4">
+                <Label className="text-sm font-medium flex items-center gap-2"><Users className="h-4 w-4 text-accent" />Groupes de rapporteurs (binôme, trinôme, …)</Label>
+                <p className="text-xs text-muted-foreground">Sélectionnez 2 rapporteurs ou plus, puis créez le groupe : il sera affecté ensemble à une même séance.</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {rapporteursList.map((r) => {
+                    const on = groupDraft.includes(r);
+                    return (
+                      <Badge key={r} variant="outline" className={cn("cursor-pointer transition-colors text-xs", on ? "bg-accent/15 border-accent/50 text-accent" : "bg-muted/30 border-border text-muted-foreground hover:bg-muted/50")}
+                        onClick={() => setGroupDraft((prev) => on ? prev.filter((x) => x !== r) : [...prev, r])}>{r}</Badge>
+                    );
+                  })}
+                </div>
+                <Button size="sm" variant="outline" disabled={groupDraft.length < 2} className="gap-2"
+                  onClick={() => { if (addRapporteurGroup(groupDraft)) { const n = groupDraft.length; setGroupDraft([]); setRefreshKey((k) => k + 1); toast.success(n === 2 ? "Binôme créé" : n === 3 ? "Trinôme créé" : `Groupe de ${n} créé`); } else toast.error("Groupe déjà existant"); }}>
+                  <Plus className="h-3.5 w-3.5" />{groupDraft.length === 2 ? "Créer le binôme" : groupDraft.length === 3 ? "Créer le trinôme" : groupDraft.length > 3 ? `Créer le groupe de ${groupDraft.length}` : "Créer le groupe"}
+                </Button>
+                {rapporteurGroupsList.length > 0 && (
+                  <div className="space-y-1">
+                    {rapporteurGroupsList.map((g) => (
+                      <div key={g} className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-accent/10">
+                        <span className="text-sm text-foreground">{g}</span>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => { removeRapporteurGroup(g); setRapporteurThemeMap((prev) => Object.fromEntries(Object.entries(prev).map(([k, v]) => [k, v.filter((x) => x !== g)]))); setRefreshKey((k) => k + 1); }}><X className="h-3.5 w-3.5" /></Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {rapporteursList.length > 0 && (
               <div className="space-y-3 border-t border-border pt-4">
                 <Label className="text-sm font-medium flex items-center gap-2"><UserCheck className="h-4 w-4 text-accent" />Assignation par thématique</Label>
@@ -832,7 +865,7 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
                       <div key={cat} className="space-y-1.5">
                         <p className="text-sm font-medium text-foreground">{cat}</p>
                         <div className="flex flex-wrap gap-1.5">
-                          {rapporteursList.map((mod) => {
+                          {[...rapporteurGroupsList, ...rapporteursList].map((mod) => {
                             const isSelected = assigned.includes(mod);
                             return (
                               <Badge key={mod} variant="outline" className={cn("cursor-pointer transition-colors text-xs", isSelected ? "bg-accent/15 border-accent/50 text-accent hover:bg-accent/25" : "bg-muted/30 border-border text-muted-foreground hover:bg-muted/50")}
