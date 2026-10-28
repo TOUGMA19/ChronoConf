@@ -85,6 +85,7 @@ interface PersistedData {
   moderators: string[];
   sessionChairs: string[];
   rapporteurs?: string[];
+  rapporteurGroups?: string[];
   organizers?: Organizer[];
   presentationTypes?: string[];
   savedAt: number;
@@ -93,7 +94,7 @@ interface PersistedData {
 function saveToStorage(): void {
   try {
     const data: PersistedData = {
-      articles, schedule, categories, moderators, sessionChairs, rapporteurs: rapporteursList, organizers, presentationTypes,
+      articles, schedule, categories, moderators, sessionChairs, rapporteurs: rapporteursList, rapporteurGroups, organizers, presentationTypes,
       savedAt: Date.now(),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -125,6 +126,7 @@ function loadFromStorage(): void {
     moderators = Array.isArray(data.moderators) ? data.moderators : [];
     sessionChairs = Array.isArray(data.sessionChairs) ? data.sessionChairs : [];
     rapporteursList = Array.isArray(data.rapporteurs) ? data.rapporteurs : [];
+    rapporteurGroups = Array.isArray(data.rapporteurGroups) ? data.rapporteurGroups : [];
     organizers = Array.isArray(data.organizers)
       ? data.organizers.filter((o: any) => o && typeof o.name === "string").map((o: any) => ({ name: String(o.name), role: String(o.role || "") }))
       : [];
@@ -165,6 +167,7 @@ let schedule: ConferenceSchedule | null = null;
 let moderators: string[] = [];
 let sessionChairs: string[] = [];
 let rapporteursList: string[] = [];
+let rapporteurGroups: string[] = []; // groupes (binômes, trinômes…) stockés sous la forme « A et B et C »
 let organizers: Organizer[] = [];
 let presentationTypes: string[] = [...DEFAULT_PRESENTATION_TYPES];
 
@@ -353,12 +356,33 @@ export function addRapporteurs(names: string[]): number {
   if (count > 0) saveToStorage();
   return count;
 }
+export const RAPPORTEUR_SEP = " et ";
 export function removeRapporteur(name: string): void {
   rapporteursList = rapporteursList.filter((c) => c !== name);
+  // un groupe qui contenait ce rapporteur n'a plus de sens
+  rapporteurGroups = rapporteurGroups.filter((g) => !g.split(RAPPORTEUR_SEP).includes(name));
   saveToStorage();
 }
 export function clearRapporteurs(): void {
   rapporteursList = [];
+  rapporteurGroups = [];
+  saveToStorage();
+}
+/** Groupes de rapporteurs (binômes, trinômes, …), chacun stocké comme « A et B ». */
+export function getRapporteurGroups(): string[] {
+  return [...rapporteurGroups];
+}
+export function addRapporteurGroup(members: string[]): boolean {
+  const names = [...new Set(members.map((m) => m.trim()).filter(Boolean))];
+  if (names.length < 2) return false;
+  const label = names.join(RAPPORTEUR_SEP);
+  if (rapporteurGroups.includes(label)) return false;
+  rapporteurGroups = [...rapporteurGroups, label];
+  saveToStorage();
+  return true;
+}
+export function removeRapporteurGroup(label: string): void {
+  rapporteurGroups = rapporteurGroups.filter((g) => g !== label);
   saveToStorage();
 }
 
@@ -475,6 +499,7 @@ export function resetForNewProject(): void {
   moderators = [];
   sessionChairs = [];
   rapporteursList = [];
+  rapporteurGroups = [];
   organizers = [];
   presentationTypes = [...DEFAULT_PRESENTATION_TYPES];
   try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
@@ -695,7 +720,7 @@ function fmt(minutes: number): string {
 // Improved schedule generation handling 100+ articles
 export function generateScheduleLocally(
   conferenceArticles: Article[],
-  config: { name: string; days: number; rooms: string[]; startHour: number; endHour: number; dayHours?: DayHours[]; breakMinutes?: number; lunchStart?: string; lunchEnd?: string; moderatorsList?: string[]; moderatorThemeMap?: Record<string, string[]>; resetModerators?: boolean; chairsList?: string[]; chairThemeMap?: Record<string, string[]>; chairRoomMap?: Record<string, string[]>; resetChairs?: boolean; rapporteursList?: string[]; rapporteurThemeMap?: Record<string, string[]>; resetRapporteurs?: boolean; rapporteursPerSession?: number; themeRoomMap?: Record<string, string | string[]> }
+  config: { name: string; days: number; rooms: string[]; startHour: number; endHour: number; dayHours?: DayHours[]; breakMinutes?: number; lunchStart?: string; lunchEnd?: string; moderatorsList?: string[]; moderatorThemeMap?: Record<string, string[]>; resetModerators?: boolean; chairsList?: string[]; chairThemeMap?: Record<string, string[]>; chairRoomMap?: Record<string, string[]>; resetChairs?: boolean; rapporteursList?: string[]; rapporteurThemeMap?: Record<string, string[]>; resetRapporteurs?: boolean; rapporteursPerSession?: number; rapporteurGroups?: string[]; themeRoomMap?: Record<string, string | string[]> }
 ): ConferenceSchedule {
   const accepted = conferenceArticles.filter((a) => a.status === "accepted");
   const slots: ScheduleSlot[] = [];
@@ -1078,14 +1103,28 @@ export function generateScheduleLocally(
   const rapMapping = config.rapporteurThemeMap ?? {};
   const hasRapMapping = Object.keys(rapMapping).some((k) => (rapMapping[k] || []).length > 0);
   const perSession = Math.max(1, Math.min(4, Math.floor(config.rapporteursPerSession ?? 2)));
+  const groupSet = new Set(config.rapporteurGroups ?? rapporteurGroups);
+
+  // Unités de rotation : chaque groupe (binôme, trinôme…) est une unité ; les rapporteurs seuls sont
+  // regroupés par paquets de `perSession` (1 = individuel, 2 = binôme, 3 = trinôme…).
+  const buildUnits = (pool: string[]): string[] => {
+    const groups = pool.filter((n) => groupSet.has(n));
+    const singles = pool.filter((n) => !groupSet.has(n));
+    const units = [...groups];
+    for (let i = 0; i < singles.length; i += perSession) {
+      const chunk = singles.slice(i, i + perSession);
+      // complète le dernier paquet incomplet avec les premiers rapporteurs pour garder la taille voulue
+      for (let k = 0; chunk.length < Math.min(perSession, singles.length); k++) chunk.push(singles[k % singles.length]);
+      units.push(chunk.join(" et "));
+    }
+    return units;
+  };
 
   if (hasRapMapping || rapList.length > 0) {
+    const themeUnits: Record<string, string[]> = {};
     const themeRapIdx: Record<string, number> = {};
+    const globalUnits = buildUnits(rapList);
     let globalRapIdx = 0;
-    const pick = (pool: string[], start: number) => {
-      const n = Math.min(perSession, pool.length);
-      return Array.from({ length: n }, (_, k) => pool[(start + k) % pool.length]).join(" et ");
-    };
 
     for (const arr of groups.values()) {
       let currentRap = "";
@@ -1101,12 +1140,13 @@ export function generateScheduleLocally(
         if (currentCat !== art.category || !currentRap) {
           const themeRaps = rapMapping[art.category];
           if (themeRaps && themeRaps.length > 0) {
+            const units = (themeUnits[art.category] ??= buildUnits(themeRaps));
             const i = themeRapIdx[art.category] ?? 0;
-            currentRap = pick(themeRaps, i);
-            themeRapIdx[art.category] = i + Math.min(perSession, themeRaps.length);
-          } else if (rapList.length > 0) {
-            currentRap = pick(rapList, globalRapIdx);
-            globalRapIdx += Math.min(perSession, rapList.length);
+            currentRap = units[i % units.length];
+            themeRapIdx[art.category] = i + 1;
+          } else if (globalUnits.length > 0) {
+            currentRap = globalUnits[globalRapIdx % globalUnits.length];
+            globalRapIdx++;
           } else {
             currentRap = "";
           }
@@ -1154,6 +1194,7 @@ export function exportBlob(): Record<string, unknown> {
     moderators,
     sessionChairs,
     rapporteurs: rapporteursList,
+    rapporteurGroups,
     organizers,
     presentationTypes,
     savedAt: Date.now(),
@@ -1168,6 +1209,7 @@ export function loadFromBlob(blob: Record<string, unknown>): void {
   if (Array.isArray(blob.moderators)) moderators = blob.moderators as string[];
   if (Array.isArray(blob.sessionChairs)) sessionChairs = blob.sessionChairs as string[];
   if (Array.isArray(blob.rapporteurs)) rapporteursList = blob.rapporteurs as string[];
+  if (Array.isArray(blob.rapporteurGroups)) rapporteurGroups = blob.rapporteurGroups as string[];
   if (Array.isArray(blob.organizers)) organizers = blob.organizers as Organizer[];
   if (Array.isArray(blob.presentationTypes) && (blob.presentationTypes as string[]).length > 0)
     presentationTypes = blob.presentationTypes as string[];
