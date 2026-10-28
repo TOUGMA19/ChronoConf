@@ -31,6 +31,8 @@ const AddSpecialSlotDialog = ({ open, onOpenChange, schedule, onAdded }: Props) 
   const [description, setDescription] = useState("");
   const [type, setType] = useState<SpecialSlotType>("keynote");
   const [room, setRoom] = useState("all");
+  const [customRoom, setCustomRoom] = useState("");
+  const effectiveRoom = () => (room === "__custom__" ? customRoom.trim().slice(0, 60) : room);
   const [startTime, setStartTime] = useState("09:00");
   const [endTime, setEndTime] = useState("09:30");
   const [day, setDay] = useState(0);
@@ -49,12 +51,17 @@ const AddSpecialSlotDialog = ({ open, onOpenChange, schedule, onAdded }: Props) 
       toast.error("L'heure de fin doit être après l'heure de début");
       return;
     }
+    const finalRoom = effectiveRoom();
+    if (!finalRoom) {
+      toast.error("Veuillez saisir le nom de la salle");
+      return;
+    }
     addSpecialSlot({
       title: safeTitle,
       speaker: secureTrim(speaker, LIMITS.speaker) || undefined,
       description: secureTrim(description, LIMITS.description) || undefined,
       type,
-      room,
+      room: finalRoom,
       startTime,
       endTime,
       day,
@@ -64,6 +71,7 @@ const AddSpecialSlotDialog = ({ open, onOpenChange, schedule, onAdded }: Props) 
     setDescription("");
     setType("keynote");
     setRoom("all");
+    setCustomRoom("");
     setStartTime("09:00");
     setEndTime("09:30");
     setDay(0);
@@ -133,8 +141,12 @@ const AddSpecialSlotDialog = ({ open, onOpenChange, schedule, onAdded }: Props) 
                   {schedule.rooms.map((r) => (
                     <SelectItem key={r} value={r}>{r}</SelectItem>
                   ))}
+                  <SelectItem value="__custom__">Autre salle (saisie libre)…</SelectItem>
                 </SelectContent>
               </Select>
+              {room === "__custom__" && (
+                <Input value={customRoom} onChange={(e) => setCustomRoom(e.target.value)} placeholder="Ex: AMPHI 700" maxLength={60} />
+              )}
             </div>
           </div>
 

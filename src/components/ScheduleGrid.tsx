@@ -125,6 +125,10 @@ const ScheduleGrid = ({ schedule, articles, selectedDay, onSlotMoved, onEditSpec
   const daySlots = schedule.slots.filter((s) => s.day === selectedDay);
   const daySpecialSlots = (schedule.specialSlots || []).filter((s) => s.day === selectedDay);
 
+  // Salles « libres » : utilisées uniquement par des créneaux spéciaux (ex. AMPHI 700) et absentes de la liste des salles
+  const extraRooms = [...new Set(daySpecialSlots.map((s) => s.room).filter((r) => r && r !== "all" && !schedule.rooms.includes(r)))];
+  const gridRooms = [...schedule.rooms, ...extraRooms];
+
   const dayHours = getDayHours(schedule, selectedDay);
   const startMinutes = Math.floor(dayHours.startHour * 60);
   const endMinutes = Math.ceil(dayHours.endHour * 60);
@@ -255,6 +259,10 @@ const ScheduleGrid = ({ schedule, articles, selectedDay, onSlotMoved, onEditSpec
       }
 
       // Article
+      if (!schedule.rooms.includes(room)) {
+        toast.error("Cette salle est réservée aux créneaux spéciaux");
+        return;
+      }
       const articleId = activeId.replace(/^article:/, "");
       const hitSlot = daySlots.find((s) => {
         if (s.articleId === articleId) return false;
@@ -358,15 +366,15 @@ const ScheduleGrid = ({ schedule, articles, selectedDay, onSlotMoved, onEditSpec
         <div className="overflow-x-auto overscroll-x-contain -mx-4 px-4 sm:mx-0 sm:px-0" style={{ WebkitOverflowScrolling: "touch" }}>
           <div className="min-w-[600px]">
             {/* Header */}
-            <div className="grid gap-0 border-b border-border" style={{ gridTemplateColumns: `80px repeat(${schedule.rooms.length}, 1fr)` }}>
+            <div className="grid gap-0 border-b border-border" style={{ gridTemplateColumns: `80px repeat(${gridRooms.length}, 1fr)` }}>
               <div className="p-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Horaire</div>
-              {schedule.rooms.map((room) => (
-                <div key={room} className="p-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider text-center border-l border-border">{room}</div>
+              {gridRooms.map((room) => (
+                <div key={room} className="p-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider text-center border-l border-border">{room}{extraRooms.includes(room) && <span className="block text-[10px] normal-case font-normal">(salle spéciale)</span>}</div>
               ))}
             </div>
 
             {/* Body */}
-            <div className="grid" style={{ gridTemplateColumns: `80px repeat(${schedule.rooms.length}, 1fr)` }}>
+            <div className="grid" style={{ gridTemplateColumns: `80px repeat(${gridRooms.length}, 1fr)` }}>
               {/* Time column */}
               <div className="relative" style={{ height: `${gridHeight}px` }}>
                 {timeLabels.map((t, i) => (
@@ -375,7 +383,7 @@ const ScheduleGrid = ({ schedule, articles, selectedDay, onSlotMoved, onEditSpec
               </div>
 
               {/* Room columns */}
-              {schedule.rooms.map((room) => {
+              {gridRooms.map((room) => {
                 const roomSlots = daySlots.filter((s) => s.room === room);
                 const isDropRoom = dropPreview?.room === room;
                 const sourceRoom = activeDrag?.kind === "article"

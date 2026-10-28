@@ -31,6 +31,8 @@ const EditSpecialSlotDialog = ({ open, onOpenChange, schedule, slot, onUpdated }
   const [description, setDescription] = useState("");
   const [type, setType] = useState<SpecialSlotType>("keynote");
   const [room, setRoom] = useState("all");
+  const [customRoom, setCustomRoom] = useState("");
+  const effectiveRoom = () => (room === "__custom__" ? customRoom.trim().slice(0, 60) : room);
   const [startTime, setStartTime] = useState("09:00");
   const [endTime, setEndTime] = useState("09:30");
   const [day, setDay] = useState(0);
@@ -41,12 +43,13 @@ const EditSpecialSlotDialog = ({ open, onOpenChange, schedule, slot, onUpdated }
       setSpeaker(slot.speaker || "");
       setDescription(slot.description || "");
       setType(slot.type);
-      setRoom(slot.room);
+      if (slot.room === "all" || schedule.rooms.includes(slot.room)) { setRoom(slot.room); setCustomRoom(""); }
+      else { setRoom("__custom__"); setCustomRoom(slot.room); }
       setStartTime(slot.startTime);
       setEndTime(slot.endTime);
       setDay(slot.day);
     }
-  }, [slot]);
+  }, [slot, schedule.rooms]);
 
   const handleSubmit = () => {
     if (!slot) return;
@@ -58,12 +61,17 @@ const EditSpecialSlotDialog = ({ open, onOpenChange, schedule, slot, onUpdated }
       toast.error("L'heure de fin doit être après l'heure de début");
       return;
     }
+    const finalRoom = effectiveRoom();
+    if (!finalRoom) {
+      toast.error("Veuillez saisir le nom de la salle");
+      return;
+    }
     updateSpecialSlot(slot.id, {
       title: title.trim(),
       speaker: speaker.trim() || undefined,
       description: description.trim() || undefined,
       type,
-      room,
+      room: finalRoom,
       startTime,
       endTime,
       day,
@@ -134,8 +142,12 @@ const EditSpecialSlotDialog = ({ open, onOpenChange, schedule, slot, onUpdated }
                   {schedule.rooms.map((r) => (
                     <SelectItem key={r} value={r}>{r}</SelectItem>
                   ))}
+                  <SelectItem value="__custom__">Autre salle (saisie libre)…</SelectItem>
                 </SelectContent>
               </Select>
+              {room === "__custom__" && (
+                <Input value={customRoom} onChange={(e) => setCustomRoom(e.target.value)} placeholder="Ex: AMPHI 700" maxLength={60} />
+              )}
             </div>
           </div>
 
