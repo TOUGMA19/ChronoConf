@@ -185,6 +185,11 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
   const [rapporteurThemeMap, setRapporteurThemeMap] = useState<Record<string, string[]>>({});
   const [resetRapporteurs, setResetRapporteurs] = useState(true);
   const [rapporteursPerSession, setRapporteursPerSession] = useState("2");
+  // Nombre de présentations par bloc (0 = illimité) : valeur globale + valeurs propres à chaque personne
+  const [moderatorBlockSize, setModeratorBlockSize] = useState("0");
+  const [moderatorQuota, setModeratorQuota] = useState<Record<string, number>>({});
+  const [rapporteurBlockSize, setRapporteurBlockSize] = useState("0");
+  const [rapporteurQuota, setRapporteurQuota] = useState<Record<string, number>>({});
   const [moderatorThemeMap, setModeratorThemeMap] = useState<Record<string, string[]>>({});
   const [chairThemeMap, setChairThemeMap] = useState<Record<string, string[]>>({});
   const [chairRoomMap, setChairRoomMap] = useState<Record<string, string[]>>({});
@@ -288,6 +293,10 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
       resetRapporteurs,
       rapporteursPerSession: parseInt(rapporteursPerSession) || 2,
       rapporteurGroups: rapporteurGroupsList,
+      moderatorBlockSize: parseInt(moderatorBlockSize) || 0,
+      moderatorQuota,
+      rapporteurBlockSize: parseInt(rapporteurBlockSize) || 0,
+      rapporteurQuota,
       themeRoomMap: Object.keys(themeRoomMap).length > 0 ? themeRoomMap : undefined,
     });
     setSelectedDay(0);
@@ -755,11 +764,17 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
                 {moderatorsList.map((m) => (
                   <div key={m} className="flex items-center justify-between px-3 py-2 rounded-lg bg-muted/50">
                     <span className="text-sm text-foreground">{m}</span>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => handleRemoveModerator(m)}><X className="h-3.5 w-3.5" /></Button>
+                    <span className="flex items-center gap-1"><Input type="number" min="0" max="50" title="Présentations par bloc (vide = valeur globale)" placeholder="bloc" value={moderatorQuota[m] ? String(moderatorQuota[m]) : ""} onChange={(e) => { const n = parseInt(e.target.value) || 0; setModeratorQuota((prev) => { const next = { ...prev }; if (n > 0) next[m] = n; else delete next[m]; return next; }); }} className="h-7 w-16 text-xs" />
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => handleRemoveModerator(m)}><X className="h-3.5 w-3.5" /></Button></span>
                   </div>
                 ))}
               </div>
             )}
+            <div className="flex items-center gap-2 border-t border-border pt-4">
+              <Label htmlFor="modBlock" className="text-sm">Présentations à modérer par bloc :</Label>
+              <Input id="modBlock" type="number" min="0" max="50" value={moderatorBlockSize} onChange={(e) => setModeratorBlockSize(e.target.value)} className="h-8 w-20" />
+              <span className="text-xs text-muted-foreground">0 = illimité · peut être personnalisé par personne dans la liste</span>
+            </div>
             {moderatorsList.length > 0 && <Button variant="outline" size="sm" onClick={handleClearModerators} className="w-full text-destructive hover:text-destructive">Vider la liste</Button>}
             {moderatorsList.length > 0 && (
               <div className="space-y-3 border-t border-border pt-4">
@@ -820,11 +835,17 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
                 {rapporteursList.map((m) => (
                   <div key={m} className="flex items-center justify-between px-3 py-2 rounded-lg bg-muted/50">
                     <span className="text-sm text-foreground">{m}</span>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => handleRemoveRapporteur(m)}><X className="h-3.5 w-3.5" /></Button>
+                    <span className="flex items-center gap-1"><Input type="number" min="0" max="50" title="Présentations par bloc (vide = valeur globale)" placeholder="bloc" value={rapporteurQuota[m] ? String(rapporteurQuota[m]) : ""} onChange={(e) => { const n = parseInt(e.target.value) || 0; setRapporteurQuota((prev) => { const next = { ...prev }; if (n > 0) next[m] = n; else delete next[m]; return next; }); }} className="h-7 w-16 text-xs" />
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => handleRemoveRapporteur(m)}><X className="h-3.5 w-3.5" /></Button></span>
                   </div>
                 ))}
               </div>
             )}
+            <div className="flex items-center gap-2 border-t border-border pt-4">
+              <Label htmlFor="rapBlock" className="text-sm">Présentations à rapporter par bloc :</Label>
+              <Input id="rapBlock" type="number" min="0" max="50" value={rapporteurBlockSize} onChange={(e) => setRapporteurBlockSize(e.target.value)} className="h-8 w-20" />
+              <span className="text-xs text-muted-foreground">0 = illimité · peut être personnalisé par personne dans la liste</span>
+            </div>
             {rapporteursList.length > 0 && <Button variant="outline" size="sm" onClick={handleClearRapporteurs} className="w-full text-destructive hover:text-destructive">Vider la liste</Button>}
             {rapporteursList.length >= 2 && (
               <div className="space-y-3 border-t border-border pt-4">
@@ -848,7 +869,8 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
                     {rapporteurGroupsList.map((g) => (
                       <div key={g} className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-accent/10">
                         <span className="text-sm text-foreground">{g}</span>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => { removeRapporteurGroup(g); setRapporteurThemeMap((prev) => Object.fromEntries(Object.entries(prev).map(([k, v]) => [k, v.filter((x) => x !== g)]))); setRefreshKey((k) => k + 1); }}><X className="h-3.5 w-3.5" /></Button>
+                        <span className="flex items-center gap-1"><Input type="number" min="0" max="50" title="Présentations par bloc (vide = valeur globale)" placeholder="bloc" value={rapporteurQuota[g] ? String(rapporteurQuota[g]) : ""} onChange={(e) => { const n = parseInt(e.target.value) || 0; setRapporteurQuota((prev) => { const next = { ...prev }; if (n > 0) next[g] = n; else delete next[g]; return next; }); }} className="h-7 w-16 text-xs" />
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => { removeRapporteurGroup(g); setRapporteurThemeMap((prev) => Object.fromEntries(Object.entries(prev).map(([k, v]) => [k, v.filter((x) => x !== g)]))); setRefreshKey((k) => k + 1); }}><X className="h-3.5 w-3.5" /></Button></span>
                       </div>
                     ))}
                   </div>
@@ -1053,7 +1075,7 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
                     </div>
                   )}
                 </div>
-                <p className="text-xs text-muted-foreground">Le logo chargé est utilisé s'il existe, sinon le logo du modèle. Format paysage, un jour par page. La colonne « Rapporteurs » vient du bouton Rapporteurs (à défaut : président de séance).</p>
+                <p className="text-xs text-muted-foreground">Aucun logo par défaut : chargez-en un si vous le souhaitez. Format paysage, un jour par page. La colonne « Rapporteurs » vient du bouton Rapporteurs (à défaut : président de séance).</p>
                 {customLogoDataUrl ? (
                   <div className="flex items-center gap-3">
                     <img src={customLogoDataUrl} alt="Logo" className="h-10 w-10 object-contain rounded border border-border" />
