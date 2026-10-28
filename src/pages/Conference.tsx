@@ -12,7 +12,7 @@ import {
   getSessionChairs, addSessionChair, addSessionChairs, removeSessionChair, clearSessionChairs,
   getRapporteurs, addRapporteur, addRapporteurs, removeRapporteur, clearRapporteurs,
   getRapporteurGroups, addRapporteurGroup, removeRapporteurGroup,
-  getPresentationTypes, getOrganizers, Article, SpecialSlot, DayHours, loadFromBlob, exportBlob,
+  getPresentationTypes, getOrganizers, Article, SpecialSlot, DayHours, loadFromBlob, exportBlob, getGenSettings, setGenSettings,
   resetForNewProject, setArticlesDuration, DurationScope,
 } from "@/lib/conference";
 import { getUnscheduledArticles } from "@/lib/people";
@@ -196,6 +196,49 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
   const [themeRoomMap, setThemeRoomMap] = useState<Record<string, string[]>>({});
   const [resetModerators, setResetModerators] = useState(true);
   const [resetChairs, setResetChairs] = useState(true);
+
+  // ---- Persistance des réglages (survivent au rechargement de la page et à la sauvegarde cloud) ----
+  const [settingsReady, setSettingsReady] = useState(false);
+  const settingsSnapshot = {
+    confName, confDays, confRooms, confStart, confEnd, perDayHours, confBreak, lunchStart, lunchEnd,
+    moderatorThemeMap, chairThemeMap, chairRoomMap, themeRoomMap, rapporteurThemeMap,
+    resetModerators, resetChairs, resetRapporteurs, rapporteursPerSession,
+    moderatorBlockSize, moderatorQuota, rapporteurBlockSize, rapporteurQuota,
+    modeleOpts, pdfOptions,
+  };
+  useEffect(() => {
+    if (!projectLoaded) return;
+    const g = getGenSettings() as Partial<typeof settingsSnapshot>;
+    if (g.confName !== undefined) setConfName(g.confName);
+    if (g.confDays !== undefined) setConfDays(g.confDays);
+    if (g.confRooms !== undefined) setConfRooms(g.confRooms);
+    if (g.confStart !== undefined) setConfStart(g.confStart);
+    if (g.confEnd !== undefined) setConfEnd(g.confEnd);
+    if (g.perDayHours !== undefined) setPerDayHours(g.perDayHours);
+    if (g.confBreak !== undefined) setConfBreak(g.confBreak);
+    if (g.lunchStart !== undefined) setLunchStart(g.lunchStart);
+    if (g.lunchEnd !== undefined) setLunchEnd(g.lunchEnd);
+    if (g.moderatorThemeMap) setModeratorThemeMap(g.moderatorThemeMap);
+    if (g.chairThemeMap) setChairThemeMap(g.chairThemeMap);
+    if (g.chairRoomMap) setChairRoomMap(g.chairRoomMap);
+    if (g.themeRoomMap) setThemeRoomMap(g.themeRoomMap);
+    if (g.rapporteurThemeMap) setRapporteurThemeMap(g.rapporteurThemeMap);
+    if (g.resetModerators !== undefined) setResetModerators(g.resetModerators);
+    if (g.resetChairs !== undefined) setResetChairs(g.resetChairs);
+    if (g.resetRapporteurs !== undefined) setResetRapporteurs(g.resetRapporteurs);
+    if (g.rapporteursPerSession !== undefined) setRapporteursPerSession(g.rapporteursPerSession);
+    if (g.moderatorBlockSize !== undefined) setModeratorBlockSize(g.moderatorBlockSize);
+    if (g.moderatorQuota) setModeratorQuota(g.moderatorQuota);
+    if (g.rapporteurBlockSize !== undefined) setRapporteurBlockSize(g.rapporteurBlockSize);
+    if (g.rapporteurQuota) setRapporteurQuota(g.rapporteurQuota);
+    if (g.modeleOpts) setModeleOpts((prev) => ({ ...prev, ...g.modeleOpts }));
+    if (g.pdfOptions) setPdfOptions((prev) => ({ ...prev, ...g.pdfOptions }));
+    setSettingsReady(true);
+  }, [projectLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!settingsReady) return;
+    setGenSettings(settingsSnapshot as unknown as Record<string, unknown>);
+  }, [settingsReady, JSON.stringify(settingsSnapshot)]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const articles = useMemo(() => getArticles(), [refreshKey]);
   const schedule = useMemo(() => getSchedule(), [refreshKey]);
