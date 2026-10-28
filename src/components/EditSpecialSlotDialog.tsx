@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { updateSpecialSlot, ConferenceSchedule, SpecialSlot, SpecialSlotType } from "@/lib/conference";
@@ -32,6 +33,7 @@ const EditSpecialSlotDialog = ({ open, onOpenChange, schedule, slot, onUpdated }
   const [type, setType] = useState<SpecialSlotType>("keynote");
   const [room, setRoom] = useState("all");
   const [customRoom, setCustomRoom] = useState("");
+  const [blockOthers, setBlockOthers] = useState<boolean | null>(null);
   const effectiveRoom = () => (room === "__custom__" ? customRoom.trim().slice(0, 60) : room);
   const [startTime, setStartTime] = useState("09:00");
   const [endTime, setEndTime] = useState("09:30");
@@ -48,6 +50,7 @@ const EditSpecialSlotDialog = ({ open, onOpenChange, schedule, slot, onUpdated }
       setStartTime(slot.startTime);
       setEndTime(slot.endTime);
       setDay(slot.day);
+      setBlockOthers(slot.blockAll ?? null);
     }
   }, [slot, schedule.rooms]);
 
@@ -72,6 +75,7 @@ const EditSpecialSlotDialog = ({ open, onOpenChange, schedule, slot, onUpdated }
       description: description.trim() || undefined,
       type,
       room: finalRoom,
+      blockAll: finalRoom === "all" ? undefined : (blockOthers ?? room === "__custom__"),
       startTime,
       endTime,
       day,
@@ -147,6 +151,12 @@ const EditSpecialSlotDialog = ({ open, onOpenChange, schedule, slot, onUpdated }
               </Select>
               {room === "__custom__" && (
                 <Input value={customRoom} onChange={(e) => setCustomRoom(e.target.value)} placeholder="Ex: AMPHI 700" maxLength={60} />
+              )}
+              {room !== "all" && (
+                <label className="flex items-start gap-2 text-xs pt-1 cursor-pointer">
+                  <Checkbox checked={blockOthers ?? room === "__custom__"} onCheckedChange={(c) => setBlockOthers(c === true)} className="mt-0.5" />
+                  <span>Bloquer toutes les autres salles pendant ce créneau (aucune communication programmée)</span>
+                </label>
               )}
             </div>
           </div>
