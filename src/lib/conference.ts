@@ -88,6 +88,7 @@ interface PersistedData {
   sessionChairs: string[];
   rapporteurs?: string[];
   rapporteurGroups?: string[];
+  genSettings?: Record<string, unknown>;
   organizers?: Organizer[];
   presentationTypes?: string[];
   savedAt: number;
@@ -96,7 +97,7 @@ interface PersistedData {
 function saveToStorage(): void {
   try {
     const data: PersistedData = {
-      articles, schedule, categories, moderators, sessionChairs, rapporteurs: rapporteursList, rapporteurGroups, organizers, presentationTypes,
+      articles, schedule, categories, moderators, sessionChairs, rapporteurs: rapporteursList, rapporteurGroups, genSettings, organizers, presentationTypes,
       savedAt: Date.now(),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -129,6 +130,7 @@ function loadFromStorage(): void {
     sessionChairs = Array.isArray(data.sessionChairs) ? data.sessionChairs : [];
     rapporteursList = Array.isArray(data.rapporteurs) ? data.rapporteurs : [];
     rapporteurGroups = Array.isArray(data.rapporteurGroups) ? data.rapporteurGroups : [];
+    genSettings = data.genSettings && typeof data.genSettings === "object" ? data.genSettings : {};
     organizers = Array.isArray(data.organizers)
       ? data.organizers.filter((o: any) => o && typeof o.name === "string").map((o: any) => ({ name: String(o.name), role: String(o.role || "") }))
       : [];
@@ -169,6 +171,7 @@ let schedule: ConferenceSchedule | null = null;
 let moderators: string[] = [];
 let sessionChairs: string[] = [];
 let rapporteursList: string[] = [];
+let genSettings: Record<string, unknown> = {}; // réglages de génération / assignations (salles, modérateurs, rapporteurs, horaires…)
 let rapporteurGroups: string[] = []; // groupes (binômes, trinômes…) stockés sous la forme « A et B et C »
 let organizers: Organizer[] = [];
 let presentationTypes: string[] = [...DEFAULT_PRESENTATION_TYPES];
@@ -502,6 +505,7 @@ export function resetForNewProject(): void {
   sessionChairs = [];
   rapporteursList = [];
   rapporteurGroups = [];
+  genSettings = {};
   organizers = [];
   presentationTypes = [...DEFAULT_PRESENTATION_TYPES];
   try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
@@ -536,6 +540,15 @@ export function setArticlesDuration(scope: DurationScope, minutes: number, onlyA
   });
   if (count > 0) saveToStorage();
   return count;
+}
+
+// ===== Réglages persistants (génération, assignations par thématique, horaires…) =====
+export function getGenSettings(): Record<string, unknown> {
+  return { ...genSettings };
+}
+export function setGenSettings(next: Record<string, unknown>): void {
+  genSettings = { ...next };
+  saveToStorage();
 }
 
 // ===== Special Slots =====
@@ -1219,6 +1232,7 @@ export function exportBlob(): Record<string, unknown> {
     sessionChairs,
     rapporteurs: rapporteursList,
     rapporteurGroups,
+    genSettings,
     organizers,
     presentationTypes,
     savedAt: Date.now(),
@@ -1234,6 +1248,7 @@ export function loadFromBlob(blob: Record<string, unknown>): void {
   if (Array.isArray(blob.sessionChairs)) sessionChairs = blob.sessionChairs as string[];
   if (Array.isArray(blob.rapporteurs)) rapporteursList = blob.rapporteurs as string[];
   if (Array.isArray(blob.rapporteurGroups)) rapporteurGroups = blob.rapporteurGroups as string[];
+  if (blob.genSettings && typeof blob.genSettings === "object") genSettings = blob.genSettings as Record<string, unknown>;
   if (Array.isArray(blob.organizers)) organizers = blob.organizers as Organizer[];
   if (Array.isArray(blob.presentationTypes) && (blob.presentationTypes as string[]).length > 0)
     presentationTypes = blob.presentationTypes as string[];
