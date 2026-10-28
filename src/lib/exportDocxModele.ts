@@ -10,7 +10,6 @@ import {
 } from "docx";
 import { saveAs } from "file-saver";
 import { ConferenceSchedule, Article, SpecialSlot } from "./conference";
-import { MODELE_DEFAULT_LOGO } from "./modeleLogo";
 
 export interface ModeleExportOptions {
   /** Sigle affiché en rose en tête (ex. « CI2026ENS ») */
@@ -23,7 +22,7 @@ export interface ModeleExportOptions {
   location: string;
   /** Date du premier jour au format AAAA-MM-JJ (sert à écrire « mercredi 28 octobre 2026 » pour chaque jour) */
   firstDayDate?: string;
-  /** Logo (data URL PNG/JPG). À défaut, le logo du modèle est utilisé. */
+  /** Logo (data URL PNG/JPG). Par défaut : aucun logo. */
   logoDataUrl?: string;
   /** Design = décor (polices, filets, bandeaux, bordures…) : id de MODELE_DESIGNS */
   design?: string;
@@ -233,9 +232,9 @@ const fmtTime = (t: string) => (t || "").replace(":", "h");
 const range = (a: string, b: string) => `${fmtTime(a)}–${fmtTime(b)}`;
 
 // ---- En-tête ----
-function headerBlock(opts: ModeleExportOptions, logo: { data: Uint8Array; type: "png" | "jpg" }) {
+function headerBlock(opts: ModeleExportOptions, logo: { data: Uint8Array; type: "png" | "jpg" } | null) {
   const d = deco();
-  const logoW = 1134, textW = CONTENT_W - 1134;
+  const logoW = logo ? 1134 : 0, textW = CONTENT_W - logoW;
   const filled = d.header === "band";
   const soft = d.header === "soft";
   const fill = filled ? C.navy : soft ? C.headFill : undefined;
@@ -243,16 +242,17 @@ function headerBlock(opts: ModeleExportOptions, logo: { data: Uint8Array; type: 
   const edge = { style: BorderStyle.SINGLE, size: 12, color: C.navy };
   const bar = { style: BorderStyle.SINGLE, size: 36, color: C.banner };
   const logoB = d.header === "boxed" ? { ...NO_BORDERS, top: edge, bottom: edge, left: edge } : NO_BORDERS;
-  const textB = d.header === "boxed" ? { ...NO_BORDERS, top: edge, bottom: edge, right: edge }
+  const textB = d.header === "boxed" ? { ...NO_BORDERS, top: edge, bottom: edge, right: edge, ...(logo ? {} : { left: edge }) }
     : d.header === "leftbar" ? { ...NO_BORDERS, left: bar } : NO_BORDERS;
   const shade = fill ? { fill, type: ShadingType.CLEAR, color: "auto" } : undefined;
   const al = d.header === "leftbar" ? AlignmentType.LEFT : AlignmentType.CENTER;
   const table = new Table({
     width: { size: CONTENT_W, type: WidthType.DXA },
-    columnWidths: [logoW, textW],
+    columnWidths: logo ? [logoW, textW] : [textW],
     layout: TableLayoutType.FIXED,
     rows: [new TableRow({
       children: [
+        ...(logo ? [
         new TableCell({
           width: { size: logoW, type: WidthType.DXA }, borders: logoB, shading: shade, verticalAlign: VerticalAlign.CENTER,
           margins: { top: 40, bottom: 40, left: 60, right: 60 },
@@ -263,7 +263,8 @@ function headerBlock(opts: ModeleExportOptions, logo: { data: Uint8Array; type: 
               altText: { title: "Logo", description: "Logo", name: "logo" },
             } as any)],
           })],
-        }),
+        })
+        ] : []),
         new TableCell({
           width: { size: textW, type: WidthType.DXA }, borders: textB, shading: shade, verticalAlign: VerticalAlign.CENTER,
           margins: { top: 40, bottom: 40, left: 160, right: 160 },
@@ -468,7 +469,7 @@ export function buildModeleDocument(
     ...DEFAULT_MODELE_OPTIONS, ...options,
     eventTitle: options.eventTitle || schedule.name,
   };
-  const logo = (opts.logoDataUrl && dataUrlToBytes(opts.logoDataUrl)) || dataUrlToBytes(MODELE_DEFAULT_LOGO)!;
+  const logo = opts.logoDataUrl ? dataUrlToBytes(opts.logoDataUrl) : null; // pas de logo par défaut
   const articleMap = new Map(articles.map((a) => [a.id, a]));
   const specials = schedule.specialSlots || [];
 

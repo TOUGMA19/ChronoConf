@@ -42,6 +42,8 @@ export interface SpecialSlot {
   description?: string;
   type: SpecialSlotType;
   room: string;        // "all" = spans all rooms
+  /** Bloque toutes les salles pendant ce créneau (par défaut : vrai si la salle n'est pas dans la liste des salles) */
+  blockAll?: boolean;
   startTime: string;
   endTime: string;
   day: number;
@@ -720,7 +722,7 @@ function fmt(minutes: number): string {
 // Improved schedule generation handling 100+ articles
 export function generateScheduleLocally(
   conferenceArticles: Article[],
-  config: { name: string; days: number; rooms: string[]; startHour: number; endHour: number; dayHours?: DayHours[]; breakMinutes?: number; lunchStart?: string; lunchEnd?: string; moderatorsList?: string[]; moderatorThemeMap?: Record<string, string[]>; resetModerators?: boolean; chairsList?: string[]; chairThemeMap?: Record<string, string[]>; chairRoomMap?: Record<string, string[]>; resetChairs?: boolean; rapporteursList?: string[]; rapporteurThemeMap?: Record<string, string[]>; resetRapporteurs?: boolean; rapporteursPerSession?: number; rapporteurGroups?: string[]; themeRoomMap?: Record<string, string | string[]> }
+  config: { name: string; days: number; rooms: string[]; startHour: number; endHour: number; dayHours?: DayHours[]; breakMinutes?: number; lunchStart?: string; lunchEnd?: string; moderatorsList?: string[]; moderatorThemeMap?: Record<string, string[]>; resetModerators?: boolean; chairsList?: string[]; chairThemeMap?: Record<string, string[]>; chairRoomMap?: Record<string, string[]>; resetChairs?: boolean; rapporteursList?: string[]; rapporteurThemeMap?: Record<string, string[]>; resetRapporteurs?: boolean; rapporteursPerSession?: number; rapporteurGroups?: string[]; moderatorBlockSize?: number; moderatorQuota?: Record<string, number>; rapporteurBlockSize?: number; rapporteurQuota?: Record<string, number>; themeRoomMap?: Record<string, string | string[]> }
 ): ConferenceSchedule {
   const accepted = conferenceArticles.filter((a) => a.status === "accepted");
   const slots: ScheduleSlot[] = [];
@@ -764,7 +766,8 @@ export function generateScheduleLocally(
   for (const sp of existingSpecials) {
     const spStart = parseMins(sp.startTime, 0);
     const spEnd = parseMins(sp.endTime, 0);
-    if (sp.room === "all") {
+    const blocksEveryRoom = sp.room === "all" || (sp.blockAll ?? !config.rooms.includes(sp.room));
+    if (blocksEveryRoom) {
       // Block all rooms for this day
       for (let r = 0; r < config.rooms.length; r++) {
         if (sp.day < config.days) {
@@ -1012,9 +1015,14 @@ export function generateScheduleLocally(
   if (hasThemeMapping || modList.length > 0) {
     const themeModIdx: Record<string, number> = {};
     let globalModIdx = 0;
+    // Nombre max de présentations modérées d'affilée (bloc) : valeur globale, ou propre à chaque modérateur (0 = illimité)
+    const modBlock = Math.max(0, Math.floor(config.moderatorBlockSize ?? 0));
+    const modQuota = config.moderatorQuota ?? {};
+    const modLimit = (name: string) => (modQuota[name] > 0 ? modQuota[name] : modBlock > 0 ? modBlock : Infinity);
 
     for (const arr of groups.values()) {
       let currentMod = "";
+      let remainingMod = Infinity;
       let currentCat: string | null = null;
       for (const slot of arr) {
         const art = articleById.get(slot.articleId);
@@ -1023,10 +1031,11 @@ export function generateScheduleLocally(
           // Respect existing assignment, but use it as the running moderator
           currentMod = art.moderator;
           currentCat = art.category;
+          remainingMod = modLimit(currentMod) - 1;
           continue;
         }
         // Rotate only when the theme changes within the room/day
-        if (currentCat !== art.category || !currentMod) {
+        if (currentCat !== art.category || !currentMod || remainingMod <= 0) {
           const themeMods = themeMapping[art.category];
           if (themeMods && themeMods.length > 0) {
             const i = themeModIdx[art.category] ?? 0;
@@ -1039,8 +1048,10 @@ export function generateScheduleLocally(
             currentMod = "";
           }
           currentCat = art.category;
+          remainingMod = modLimit(currentMod);
         }
         if (currentMod) {
+          remainingMod--;
           art.moderator = currentMod;
           mutations[art.id] = { ...mutations[art.id], moderator: currentMod };
         }
@@ -1104,6 +1115,15 @@ export function generateScheduleLocally(
   const hasRapMapping = Object.keys(rapMapping).some((k) => (rapMapping[k] || []).length > 0);
   const perSession = Math.max(1, Math.min(4, Math.floor(config.rapporteursPerSession ?? 2)));
   const groupSet = new Set(config.rapporteurGroups ?? rapporteurGroups);
+  const rapBlock = Math.max(0, Math.floor(config.rapporteurBlockSize ?? 0));
+  const rapQuota = config.rapporteurQuota ?? {};
+  // Limite (présentations d'affilée) d'une unité : quota du groupe, sinon le plus petit quota de ses membres, sinon valeur globale
+  const rapLimit = (unit: string) => {
+    if (rapQuota[unit] > 0) return rapQuota[unit];
+    const qs = unit.split(" et ").map((m) => rapQuota[m]).filter((q) => q > 0);
+    if (qs.length) return Math.min(...qs);
+    return rapBlock > 0 ? rapBlock : Infinity;
+  };
 
   // Unités de rotation : chaque groupe (binôme, trinôme…) est une unité ; les rapporteurs seuls sont
   // regroupés par paquets de `perSession` (1 = individuel, 2 = binôme, 3 = trinôme…).
@@ -1128,6 +1148,7 @@ export function generateScheduleLocally(
 
     for (const arr of groups.values()) {
       let currentRap = "";
+      let remainingRap = Infinity;
       let currentCat: string | null = null;
       for (const slot of arr) {
         const art = articleById.get(slot.articleId);
@@ -1135,9 +1156,10 @@ export function generateScheduleLocally(
         if (art.rapporteurs) {
           currentRap = art.rapporteurs;
           currentCat = art.category;
+          remainingRap = rapLimit(currentRap) - 1;
           continue;
         }
-        if (currentCat !== art.category || !currentRap) {
+        if (currentCat !== art.category || !currentRap || remainingRap <= 0) {
           const themeRaps = rapMapping[art.category];
           if (themeRaps && themeRaps.length > 0) {
             const units = (themeUnits[art.category] ??= buildUnits(themeRaps));
@@ -1151,8 +1173,10 @@ export function generateScheduleLocally(
             currentRap = "";
           }
           currentCat = art.category;
+          remainingRap = rapLimit(currentRap);
         }
         if (currentRap) {
+          remainingRap--;
           art.rapporteurs = currentRap;
           mutations[art.id] = { ...mutations[art.id], rapporteurs: currentRap };
         }
