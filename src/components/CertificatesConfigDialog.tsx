@@ -9,7 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { Award, Upload, Download, FileText, Trash2 } from "lucide-react";
+import { Award, Upload, Download, FileText, Trash2, Search } from "lucide-react";
 import {
   CERTIFICATE_TEMPLATES,
   CertificateOptions,
@@ -30,6 +30,11 @@ import {
 import CertificateLayoutEditor from "./CertificateLayoutEditor";
 import { toast } from "sonner";
 import ListStatusNotice from "./ListStatusNotice";
+import RoleSwapBar from "./RoleSwapBar";
+import { swapRole } from "@/lib/people";
+
+const ALL_ROLES = Object.keys(CERT_ROLE_LABEL) as CertificateRole[];
+const ROLE_OPTIONS = ALL_ROLES.map((value) => ({ value, label: CERT_ROLE_LABEL[value] }));
 
 interface Props {
   open: boolean;
@@ -67,6 +72,11 @@ export default function CertificatesConfigDialog({
   // ou deux communications est coché / décoché indépendamment.
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set(recipients.map(recipientKey)));
   const [extraRecipients, setExtraRecipients] = useState<CertificateRecipient[]>([]);
+  // Rôles modifiés par l'utilisateur, indexés par l'identité d'ORIGINE du destinataire
+  // (recipientKey de la liste source) : la sélection cochée survit donc à un changement de rôle.
+  const [roleOverrides, setRoleOverrides] = useState<Record<string, CertificateRole>>({});
+  const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState<Set<CertificateRole>>(() => new Set(ALL_ROLES));
   const [layout, setLayout] = useState<CertificateLayout>(() => defaultLayout());
   const [busy, setBusy] = useState(false);
 
@@ -90,7 +100,79 @@ export default function CertificatesConfigDialog({
     return [...recipients, ...extraRecipients.filter((r) => !seen.has(recipientKey(r)))];
   }, [recipients, extraRecipients]);
 
-  const filteredRecipients = allRecipients.filter((r) => selectedKeys.has(recipientKey(r)));
+  // Lignes éditables : id = identité d'origine, rec = destinataire avec son rôle EFFECTIF.
+  const rows = useMemo(
+    () => allRecipients.map((r) => {
+      const id = recipientKey(r);
+      return { id, rec: { ...r, role: roleOverrides[id] ?? r.role } as CertificateRecipient };
+    }),
+    [allRecipients, roleOverrides],
+  );
+
+  const visibleRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(({ rec }) =>
+      rec.name.toLowerCase().includes(q) ||
+      (rec.affiliation || "").toLowerCase().includes(q) ||
+      (rec.communicationTitle || "").toLowerCase().includes(q));
+  }, [rows, search]);
+
+  const roleCounts = useMemo(() => {
+    const c = Object.fromEntries(ALL_ROLES.map((r) => [r, 0])) as Record<CertificateRole, number>;
+    rows.forEach(({ rec }) => c[rec.role]++);
+    return c;
+  }, [rows]);
+
+  // Destinataires réellement exportés : cochés + rôle retenu. Le titre de communication
+  // n'a de sens que pour un « Auteur / Présentateur » (sinon il est retiré), et les
+  // doublons créés par un changement de rôle sont fusionnés (une attestation par personne/rôle).
+  const filteredRecipients = useMemo(() => {
+    const seen = new Set<string>();
+    const out: CertificateRecipient[] = [];
+    for (const { id, rec } of rows) {
+      if (!selectedKeys.has(id) || !roleFilter.has(rec.role)) continue;
+      const final: CertificateRecipient = rec.role === "speaker" ? rec : { ...rec, communicationTitle: undefined };
+      const k = recipientKey(final);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(final);
+    }
+    return out;
+  }, [rows, selectedKeys, roleFilter]);
+
+  const setRoleFor = (id: string, original: CertificateRole, role: CertificateRole) => {
+    setRoleOverrides((prev) => {
+      const next = { ...prev };
+      if (role === original) delete next[id]; else next[id] = role;
+      return next;
+    });
+  };
+
+  const originalRoleOf = (id: string) => allRecipients.find((r) => recipientKey(r) === id)?.role ?? "participant";
+
+  const bulkSetRole = (role: CertificateRole) => {
+    setRoleOverrides((prev) => {
+      const next = { ...prev };
+      visibleRows.forEach(({ id }) => { if (role === originalRoleOf(id)) delete next[id]; else next[id] = role; });
+      return next;
+    });
+  };
+
+  const swapRoles = (a: CertificateRole, b: CertificateRole) => {
+    setRoleOverrides((prev) => {
+      const next = { ...prev };
+      visibleRows.forEach(({ id, rec }) => {
+        const role = swapRole(rec.role, a, b);
+        if (role === originalRoleOf(id)) delete next[id]; else next[id] = role;
+      });
+      return next;
+    });
+    toast.success(`Rôles permutés : ${CERT_ROLE_LABEL[a]} ⇄ ${CERT_ROLE_LABEL[b]}`);
+  };
+
+  const toggleRoleFilter = (role: CertificateRole) =>
+    setRoleFilter((prev) => { const n = new Set(prev); if (n.has(role)) n.delete(role); else n.add(role); return n; });
 
   const buildOpts = (): CertificateOptions => ({
     conferenceName,
@@ -248,51 +330,119 @@ export default function CertificatesConfigDialog({
             <ManualRecipientRow
               onAdd={(name, role, affiliation) => {
                 const rec: CertificateRecipient = { name, role, affiliation: affiliation || undefined };
-                if (allRecipients.some((r) => recipientKey(r) === recipientKey(rec))) return;
+                if (rows.some((r) => recipientKey(r.rec) === recipientKey(rec))) return;
                 setExtraRecipients((prev) => [...prev, rec]);
                 setSelectedKeys((prev) => new Set(prev).add(recipientKey(rec)));
               }}
             />
-            <div className="flex items-center gap-2 pb-2">
-              <Button size="sm" variant="outline" onClick={() => setSelectedKeys(new Set(allRecipients.map(recipientKey)))}>Tout sélectionner</Button>
-              <Button size="sm" variant="outline" onClick={() => setSelectedKeys(new Set())}>Tout désélectionner</Button>
+
+            <div className="flex flex-wrap items-center gap-2 pb-2">
+              <div className="relative flex-1 min-w-[180px]">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input className="h-8 pl-7 text-sm" placeholder="Rechercher un participant…" value={search} onChange={(e) => setSearch(e.target.value)} />
+              </div>
+              <Select onValueChange={(v) => bulkSetRole(v as CertificateRole)}>
+                <SelectTrigger className="h-8 w-[200px] text-xs"><SelectValue placeholder="Attribuer un rôle (filtrés)" /></SelectTrigger>
+                <SelectContent>
+                  {ROLE_OPTIONS.map((r) => <SelectItem key={r.value} value={r.value}>Tous → {r.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
-            <div className="flex-1 min-h-0 overflow-y-auto border border-border rounded-md">
-              <div className="p-2 space-y-1">
-                {allRecipients.map((r) => {
-                  const rk = recipientKey(r);
-                  const checked = selectedKeys.has(rk);
-                  const isExtra = extraRecipients.some((e) => recipientKey(e) === rk);
+
+            <div className="pb-2">
+              <RoleSwapBar
+                roles={ROLE_OPTIONS}
+                defaultA="speaker"
+                defaultB="participant"
+                countOf={(r) => visibleRows.filter((x) => x.rec.role === r).length}
+                onSwap={swapRoles}
+              />
+            </div>
+
+            <div className="rounded-md border border-border bg-muted/20 p-2 mb-2 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11px] font-medium text-muted-foreground">
+                  Générer les attestations pour : <span className="text-foreground">{filteredRecipients.length}</span> sélectionné{filteredRecipients.length > 1 ? "s" : ""}
+                </p>
+                <div className="flex gap-1">
+                  <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={() => setSelectedKeys(new Set(rows.map((r) => r.id)))}>Tout cocher</Button>
+                  <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={() => setSelectedKeys(new Set())}>Tout décocher</Button>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                {ALL_ROLES.map((r) => {
+                  const active = roleFilter.has(r);
                   return (
-                    <label key={rk} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/50 cursor-pointer">
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => toggleRoleFilter(r)}
+                      className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 transition",
+                        active ? "border-primary/60 bg-primary/10 text-primary" : "opacity-40 grayscale hover:opacity-70")}
+                      title={active ? "Cliquer pour exclure ce rôle" : "Cliquer pour inclure ce rôle"}
+                    >
+                      <span className="font-semibold">{roleCounts[r]}</span> {CERT_ROLE_LABEL[r]}
+                    </button>
+                  );
+                })}
+                <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={() => setRoleFilter(new Set(ALL_ROLES))}>Tous les rôles</Button>
+                <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={() => setRoleFilter(new Set())}>Aucun</Button>
+              </div>
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-y-auto border border-border rounded-md">
+              <div className="divide-y divide-border">
+                {visibleRows.map(({ id, rec }) => {
+                  const checked = selectedKeys.has(id);
+                  const isExtra = extraRecipients.some((e) => recipientKey(e) === id);
+                  const original = originalRoleOf(id);
+                  const changed = rec.role !== original;
+                  return (
+                    <div key={id} className="flex items-center gap-2 px-3 py-2 hover:bg-muted/40">
                       <Checkbox
                         checked={checked}
                         onCheckedChange={(c) => {
                           const next = new Set(selectedKeys);
-                          if (c) next.add(rk); else next.delete(rk);
+                          if (c) next.add(id); else next.delete(id);
                           setSelectedKeys(next);
                         }}
                       />
-                      <span className="flex-1 text-sm truncate">{r.name}{r.communicationTitle ? <span className="text-muted-foreground"> — {r.communicationTitle}</span> : null}</span>
-                      <span className="text-xs text-muted-foreground">{CERT_ROLE_LABEL[r.role]}</span>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium truncate">
+                          {rec.name}
+                          {rec.role === "speaker" && rec.communicationTitle
+                            ? <span className="font-normal text-muted-foreground"> — {rec.communicationTitle}</span> : null}
+                        </div>
+                        {rec.affiliation && <div className="text-xs text-muted-foreground truncate">{rec.affiliation}</div>}
+                      </div>
+                      {changed && <span className="text-[10px] text-primary" title={`Rôle d'origine : ${CERT_ROLE_LABEL[original]}`}>modifié</span>}
+                      <Select value={rec.role} onValueChange={(v) => setRoleFor(id, original, v as CertificateRole)}>
+                        <SelectTrigger className="h-7 w-[170px] text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {ROLE_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
                       {isExtra && (
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
                           className="h-6 w-6"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            setExtraRecipients((prev) => prev.filter((p) => recipientKey(p) !== rk));
-                            setSelectedKeys((prev) => { const n = new Set(prev); n.delete(rk); return n; });
+                          onClick={() => {
+                            setExtraRecipients((prev) => prev.filter((p) => recipientKey(p) !== id));
+                            setSelectedKeys((prev) => { const n = new Set(prev); n.delete(id); return n; });
+                            setRoleOverrides((prev) => { const n = { ...prev }; delete n[id]; return n; });
                           }}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       )}
-                    </label>
+                    </div>
                   );
                 })}
+                {visibleRows.length === 0 && (
+                  <div className="px-3 py-8 text-center text-xs text-muted-foreground">Aucun participant trouvé.</div>
+                )}
               </div>
             </div>
           </TabsContent>

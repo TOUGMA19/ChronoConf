@@ -1,5 +1,8 @@
 import { useState, useMemo, useEffect } from "react";
 import ListStatusNotice from "./ListStatusNotice";
+import RoleSwapBar from "./RoleSwapBar";
+import { swapRole } from "@/lib/people";
+import { toast } from "sonner";
 import QRCode from "qrcode";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -152,6 +155,22 @@ export function BadgesConfigDialog({
     setEditedBadges((prev) =>
       prev.map((b) => (filteredBadges.some((f) => f.name === b.name) ? { ...b, role } : b))
     );
+  };
+
+  // Permute deux rôles sur les personnes affichées (liste filtrée par la recherche).
+  const swapRoles = (a: BadgeRole, b: BadgeRole) => {
+    const visible = new Set(filteredBadges.map((f) => f.name));
+    let n = 0;
+    setEditedBadges((prev) =>
+      prev.map((x) => {
+        if (!visible.has(x.name)) return x;
+        const role = swapRole(x.role, a, b);
+        if (role !== x.role) n++;
+        return role === x.role ? x : { ...x, role };
+      }),
+    );
+    const label = (r: BadgeRole) => ROLE_OPTIONS.find((o) => o.value === r)?.label ?? r;
+    toast.success(`Rôles permutés : ${label(a)} ⇄ ${label(b)}`);
   };
 
   const filteredBadges = useMemo(() => {
@@ -529,6 +548,13 @@ export function BadgesConfigDialog({
                 </Select>
               </div>
 
+              <RoleSwapBar
+                roles={ROLE_OPTIONS}
+                defaultA="speaker"
+                defaultB="participant"
+                countOf={(r) => filteredBadges.filter((x) => x.role === r).length}
+                onSwap={swapRoles}
+              />
 
               <div className="rounded-md border border-border bg-muted/20 p-2 space-y-2">
                 <div className="flex items-center justify-between gap-2">
