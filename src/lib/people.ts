@@ -38,3 +38,15 @@ export interface SimpleOrganizer {
   name: string;
   role?: string;
 }
+
+/**
+ * Permute deux rôles : `a` devient `b` et `b` devient `a`, tout autre rôle
+ * reste inchangé. Utilisé par les badges ET les attestations pour que la
+ * permutation en masse (ex. Auteurs ⇄ Participants) se comporte de façon identique.
+ */
+export function swapRole<R extends string>(current: R, a: R, b: R): R {
+  if (a === b) return current;
+  if (current === a) return b;
+  if (current === b) return a;
+  return current;
+}
