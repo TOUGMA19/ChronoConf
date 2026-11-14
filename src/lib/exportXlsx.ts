@@ -1,3 +1,4 @@
+import { cleanArticles, cleanSchedule } from "./people";
 import * as XLSX from "xlsx";
 import { ConferenceSchedule, Article } from "./conference";
 
@@ -46,6 +47,8 @@ function autoFitColumns(ws: XLSX.WorkSheet, headers: string[], rows: (string | n
  * - "Statistiques": global stats (totals, avg duration, room/theme distribution)
  */
 export function exportScheduleXLSX(schedule: ConferenceSchedule, articles: Article[]) {
+  articles = cleanArticles(articles);
+  schedule = cleanSchedule(schedule);
   const wb = XLSX.utils.book_new();
   const articleMap = new Map(articles.map((a) => [a.id, a]));
 

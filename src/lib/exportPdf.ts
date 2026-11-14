@@ -2,6 +2,8 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { ConferenceSchedule, Article } from "./conference";
 import { getThemeColor, lightenRgb } from "./themeColors";
+import { cleanArticles, cleanSchedule } from "./people";
+import { applyCellFont } from "./pdfFont";
 
 export interface PdfExportOptions {
   columns: {
@@ -106,6 +108,9 @@ const SPECIAL_SLOT_LABELS: Record<string, string> = {
 };
 
 export function exportSchedulePDF(schedule: ConferenceSchedule, articles: Article[], options: PdfExportOptions = DEFAULT_PDF_OPTIONS, customLogoDataUrl?: string) {
+  // LaTeX → texte Unicode lisible (titres, résumés, intervenants)
+  articles = cleanArticles(articles);
+  schedule = cleanSchedule(schedule);
   const orient = options.orientation || "landscape";
   const doc = new jsPDF({ orientation: orient, unit: "mm", format: "a4" });
   const articleMap = new Map(articles.map((a) => [a.id, a]));
@@ -274,6 +279,7 @@ export function exportSchedulePDF(schedule: ConferenceSchedule, articles: Articl
           headStyles: { fillColor: themeColor ? themeColor : [30, 41, 59], textColor: 255, fontStyle: "bold", fontSize: 7.5, halign: "center" },
           columnStyles,
           didParseCell(data) {
+          applyCellFont(data);
             if (data.section === "body" && data.row.index >= 0) {
               const row = rows[data.row.index];
               if (row?.isSpecial) {
@@ -321,6 +327,7 @@ export function exportSchedulePDF(schedule: ConferenceSchedule, articles: Articl
         headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: "bold", fontSize: 7.5, halign: "center" },
         columnStyles,
         didParseCell(data) {
+          applyCellFont(data);
           if (data.section === "body" && data.row.index >= 0) {
             const row = flatRows[data.row.index];
             if (row?.isSpecial) {
@@ -388,6 +395,8 @@ export function exportSchedulePDFByRoom(
   options: PdfExportOptions = DEFAULT_PDF_OPTIONS,
   customLogoDataUrl?: string,
 ) {
+  articles = cleanArticles(articles);
+  schedule = cleanSchedule(schedule);
   const orient = options.orientation || "landscape";
   const doc = new jsPDF({ orientation: orient, unit: "mm", format: "a4" });
   const articleMap = new Map(articles.map((a) => [a.id, a]));
@@ -512,6 +521,7 @@ export function exportSchedulePDFByRoom(
       headStyles: { fillColor: [30, 64, 175], textColor: 255, fontStyle: "bold", fontSize: 8.5, halign: "center" },
       columnStyles,
       didParseCell(data) {
+          applyCellFont(data);
         if (data.section === "body" && data.row.index >= 0) {
           const r = rows[data.row.index];
           if (r?.isSpecial) {

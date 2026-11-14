@@ -1,3 +1,5 @@
+import { cleanArticles, cleanSchedule } from "./people";
+import { applyCellFont, fontFamilyFor, pdfSafeText } from "./pdfFont";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { ConferenceSchedule, Article } from "./conference";
@@ -37,6 +39,9 @@ export function exportBookletPDF(
   articles: Article[],
   customLogoDataUrl?: string,
 ) {
+  // LaTeX → texte Unicode lisible
+  articles = cleanArticles(articles);
+  schedule = cleanSchedule(schedule);
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
@@ -54,9 +59,9 @@ export function exportBookletPDF(
   }
 
   doc.setTextColor(255, 255, 255);
-  doc.setFont("helvetica", "bold");
+  doc.setFont(fontFamilyFor(doc, schedule.name), "bold");
   doc.setFontSize(28);
-  const titleLines = doc.splitTextToSize(schedule.name, pageW - 40);
+  const titleLines = doc.splitTextToSize(pdfSafeText(doc, schedule.name), pageW - 40);
   doc.text(titleLines, pageW / 2, 130, { align: "center" });
 
   doc.setFontSize(14);
@@ -164,6 +169,7 @@ export function exportBookletPDF(
         5: { cellWidth: 22 },
       },
       didParseCell(data) {
+        applyCellFont(data);
         if (data.section === "body" && rows[data.row.index]?.isSpecial) {
           data.cell.styles.fillColor = [241, 245, 249];
           data.cell.styles.fontStyle = "bold";
@@ -208,34 +214,35 @@ export function exportBookletPDF(
     const currentPage = doc.getNumberOfPages();
 
     // Title
-    doc.setFont("helvetica", "bold");
+    doc.setFont(fontFamilyFor(doc, a.title), "bold");
     doc.setFontSize(10);
-    const titleLines = doc.splitTextToSize(a.title, pageW - 28);
+    const titleLines = doc.splitTextToSize(pdfSafeText(doc, a.title), pageW - 28);
     doc.text(titleLines, 14, absY);
     absY += titleLines.length * 4.5 + 1;
 
     // Authors
-    doc.setFont("helvetica", "italic");
+    doc.setFont(fontFamilyFor(doc, a.authors || ""), "italic");
     doc.setFontSize(9);
     doc.setTextColor(80);
-    const authorLines = doc.splitTextToSize(a.authors || "—", pageW - 28);
+    const authorLines = doc.splitTextToSize(pdfSafeText(doc, a.authors || "—"), pageW - 28);
     doc.text(authorLines, 14, absY);
     absY += authorLines.length * 4 + 1;
     doc.setTextColor(0);
 
     // Meta line
-    doc.setFont("helvetica", "normal");
+    const meta = `${a.category || "—"} · ${a.duration} min${a.moderator ? " · Mod: " + a.moderator : ""}${a.sessionChair ? " · Prés: " + a.sessionChair : ""}`;
+    doc.setFont(fontFamilyFor(doc, meta), "normal");
     doc.setFontSize(8);
     doc.setTextColor(110);
-    const meta = `${a.category || "—"} · ${a.duration} min${a.moderator ? " · Mod: " + a.moderator : ""}${a.sessionChair ? " · Prés: " + a.sessionChair : ""}`;
-    doc.text(meta, 14, absY);
+    doc.text(pdfSafeText(doc, meta), 14, absY);
     absY += 4;
     doc.setTextColor(0);
 
     // Abstract
     if (a.abstract) {
+      doc.setFont(fontFamilyFor(doc, a.abstract), "normal");
       doc.setFontSize(9);
-      const absLines = doc.splitTextToSize(a.abstract, pageW - 28);
+      const absLines = doc.splitTextToSize(pdfSafeText(doc, a.abstract), pageW - 28);
       // Page break for very long abstracts
       const needed = absLines.length * 4;
       if (absY + needed > pageH - 18) {
@@ -244,6 +251,7 @@ export function exportBookletPDF(
       }
       doc.text(absLines, 14, absY);
       absY += absLines.length * 4 + 2;
+      doc.setFont("helvetica", "normal");
     }
 
     // Separator
@@ -280,6 +288,7 @@ export function exportBookletPDF(
       theme: "striped",
       styles: { fontSize: 9, cellPadding: 2 },
       headStyles: { fillColor: [30, 41, 59], textColor: 255 },
+      didParseCell(data) { applyCellFont(data); },
       columnStyles: { 0: { cellWidth: 110 }, 1: { cellWidth: "auto" as unknown as number, halign: "center" } },
       margin: { left: 14, right: 14 },
     });

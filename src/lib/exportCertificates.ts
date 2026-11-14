@@ -4,7 +4,9 @@ import PizZip from "pizzip";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import { ConferenceSchedule, Article } from "./conference";
-import { splitAuthors, normalizeName, getUnscheduledArticles } from "./people";
+import { splitAuthors, normalizeName, getUnscheduledArticles, cleanArticles, cleanSchedule } from "./people";
+import { latexToUnicode } from "./latex";
+import { ensureUnicodeFonts, fontFamilyFor, pdfSafeText } from "./pdfFont";
 
 // ===========================================================================
 // TYPES
@@ -242,6 +244,9 @@ export function buildRecipientsFromSchedule(
   options: BuildRecipientsOptions = {},
 ): CertificateRecipient[] {
   const { includeUnscheduled = true, organizers = [] } = options;
+  // LaTeX → texte Unicode lisible (titres, noms accentués…)
+  articles = cleanArticles(articles);
+  schedule = cleanSchedule(schedule);
   const articleMap = new Map(articles.map((a) => [a.id, a]));
   const byKey = new Map<string, CertificateRecipient>();
 
@@ -450,21 +455,23 @@ async function drawCertificatePage(
       continue;
     }
 
-    const text = b.textOverride ?? blockTextFor(b.id, rec, opts);
-    if (text == null || text === "") continue;
+    const rawText = b.textOverride ?? blockTextFor(b.id, rec, opts);
+    if (rawText == null || rawText === "") continue;
+    const text = latexToUnicode(rawText);
     if (b.id === "separator" || b.id === "signatureLine") continue;
 
     const isHeading = ["heading", "subtitle", "name"].includes(b.id);
     const family = isHeading ? tpl.headingFont : tpl.bodyFont;
     const weight: "normal" | "bold" | "italic" | "bolditalic" =
       b.bold && b.italic ? "bolditalic" : b.bold ? "bold" : b.italic ? "italic" : "normal";
-    doc.setFont(family, weight);
+    // Police Unicode (DejaVu) uniquement si le texte contient des symboles (grec, indices, ≤…).
+    doc.setFont(fontFamilyFor(doc, text, family), weight);
     doc.setFontSize(b.fontSize ?? 12);
     const color = b.color ?? (b.id === "heading" || b.id === "name" ? tpl.primary : tpl.text);
     doc.setTextColor(...color);
 
     const align = b.align ?? "center";
-    const wrapped = doc.splitTextToSize(text, b.w);
+    const wrapped = doc.splitTextToSize(pdfSafeText(doc, text), b.w);
     const tx = align === "left" ? b.x - b.w / 2 : align === "right" ? b.x + b.w / 2 : b.x;
     doc.text(wrapped, tx, b.y, { align });
   }
@@ -475,11 +482,24 @@ function slugify(name: string): string {
     .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
+/** Convertit le LaTeX éventuel des champs d'un destinataire (saisie manuelle, import…). */
+function cleanRecipient(r: CertificateRecipient): CertificateRecipient {
+  return {
+    ...r,
+    name: latexToUnicode(r.name),
+    affiliation: r.affiliation ? latexToUnicode(r.affiliation) : r.affiliation,
+    communicationTitle: r.communicationTitle ? latexToUnicode(r.communicationTitle) : r.communicationTitle,
+  };
+}
+
 export async function exportCertificatesPDF(
   recipients: CertificateRecipient[],
   opts: CertificateOptions,
 ): Promise<void> {
   if (recipients.length === 0) throw new Error("Aucun destinataire");
+  recipients = recipients.map(cleanRecipient);
+  opts = { ...opts, conferenceName: latexToUnicode(opts.conferenceName) };
+  await ensureUnicodeFonts(); // police des symboles mathématiques (grec, indices, ≤…)
   const tpl = getCertificateTemplate(opts.templateId);
   const layout = opts.layout ?? defaultLayout();
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
@@ -555,6 +575,8 @@ export async function exportCertificatesPPTX(
   opts: CertificateOptions,
 ): Promise<void> {
   if (recipients.length === 0) throw new Error("Aucun destinataire");
+  recipients = recipients.map(cleanRecipient);
+  opts = { ...opts, conferenceName: latexToUnicode(opts.conferenceName) };
   const buf = templateFile instanceof File ? await templateFile.arrayBuffer() : templateFile;
 
   let baseZipBytes: Uint8Array;

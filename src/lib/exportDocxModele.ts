@@ -3,6 +3,7 @@
 //  - titre « PROGRAMME DU … » + date/lieu du jour
 //  - blocs d'activités (Activités | Responsables | Horaire) pour les créneaux spéciaux
 //  - blocs « COMMUNICATIONS — THÉMATIQUE n : … » (Salle | Date et heure | Auteur(s) | Titre | Modérateur | Rapporteurs)
+import { cleanArticles, cleanSchedule } from "./people";
 import {
   Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, AlignmentType,
   WidthType, BorderStyle, ShadingType, PageOrientation, ImageRun, VerticalAlign,
@@ -464,6 +465,9 @@ export function buildModeleDocument(
   articles: Article[],
   options: ModeleExportOptions,
 ): Document {
+  // LaTeX → texte Unicode lisible
+  articles = cleanArticles(articles);
+  schedule = cleanSchedule(schedule);
   T = resolveTheme(options);
   const opts: ModeleExportOptions = {
     ...DEFAULT_MODELE_OPTIONS, ...options,

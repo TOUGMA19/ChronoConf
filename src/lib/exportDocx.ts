@@ -1,3 +1,4 @@
+import { cleanArticles, cleanSchedule } from "./people";
 import {
   Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
   AlignmentType, HeadingLevel, WidthType, BorderStyle, ShadingType,
@@ -117,6 +118,8 @@ export function exportScheduleDOCX(
   options: PdfExportOptions = DEFAULT_PDF_OPTIONS,
   customLogoDataUrl?: string,
 ) {
+  articles = cleanArticles(articles);
+  schedule = cleanSchedule(schedule);
   const logo = options.showLogo && customLogoDataUrl ? dataUrlToBytes(customLogoDataUrl) : null;
   const articleMap = new Map(articles.map((a) => [a.id, a]));
   const specialSlots = schedule.specialSlots || [];

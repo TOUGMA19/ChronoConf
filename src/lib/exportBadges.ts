@@ -1,7 +1,7 @@
 import jsPDF from "jspdf";
 import QRCode from "qrcode";
 import { ConferenceSchedule, Article } from "./conference";
-import { splitAuthors, normalizeName, getUnscheduledArticles } from "./people";
+import { splitAuthors, normalizeName, getUnscheduledArticles, cleanArticles, cleanSchedule } from "./people";
 
 // ===========================================================================
 // PUBLIC TYPES
@@ -367,6 +367,9 @@ export function buildBadgesFromSchedule(
   options: BuildListOptions = {},
 ): BadgeEntry[] {
   const { includeUnscheduled = true, organizers = [] } = options;
+  // LaTeX → texte Unicode lisible (noms accentués, thématiques…)
+  articles = cleanArticles(articles);
+  schedule = cleanSchedule(schedule);
   const byName = new Map<string, BadgeEntry>();
   const priority: Record<BadgeRole, number> = { chair: 3, moderator: 2, speaker: 1, organizer: 1, other: 0, participant: 0 };
 
