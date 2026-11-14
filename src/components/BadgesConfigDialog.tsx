@@ -606,7 +606,7 @@ export function BadgesConfigDialog({
                   </Select>
                 </div>
                 <p className="text-[10px] text-muted-foreground">
-                  Ils portent le logo, l'événement, le rôle et le QR code (si activé : lien de base, sinon nom de la conférence), avec des lignes pour écrire à la main. Pour n'imprimer que des badges vierges, cliquez sur « Aucun » dans les rôles ci-dessous.
+                  Ils portent le logo, l'événement, le rôle et, si activé, un grand QR code centré (lien de base, sinon nom de la conférence), sans nom imprimé. Pour n'imprimer que des badges vierges, cliquez sur « Aucun » dans les rôles ci-dessous.
                 </p>
               </div>
 
