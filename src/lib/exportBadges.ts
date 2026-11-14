@@ -56,6 +56,8 @@ export interface BadgeExportOptions {
   shape?: BadgeShape;
   decoration?: BadgeDecoration; // default "none"
   showQrCode?: boolean;
+  /** Rôles pour lesquels la thématique n'est PAS imprimée sous le nom (ex. ["moderator", "chair"]). */
+  hideThemeRoles?: BadgeRole[];
   qrBaseUrl?: string;
   qrMode?: "url" | "vcard";
   accentColorOverride?: [number, number, number];
@@ -427,6 +429,11 @@ function slugify(name: string): string {
 }
 
 export function buildQrPayload(badge: BadgeEntry, conferenceName: string, opts: BadgeExportOptions): string {
+  // Badge vierge : pas de nom, le QR renvoie à l'événement (URL de base si fournie, sinon nom de la conférence + rôle)
+  if (badge.blank || !badge.name.trim()) {
+    const b = (opts.qrBaseUrl || "").trim();
+    return b || `${conferenceName} (${ROLE_LABEL[badge.role]})`;
+  }
   if (opts.qrMode === "vcard") {
     return [
       "BEGIN:VCARD", "VERSION:3.0",
@@ -846,13 +853,14 @@ export async function exportBadgesPDF(
 
   // Pre-render QR codes
   const qrCache = new Map<string, string>();
+  // Un badge vierge n'a pas de nom : sa clé dépend du rôle (la couleur du QR suit le rôle).
+  const qrKey = (b: BadgeEntry) => (b.blank || !b.name.trim() ? `__blank__${b.role}` : b.name);
   if (opts.showQrCode) {
     for (const badge of badges) {
-      if (badge.blank || !badge.name.trim()) continue; // pas de QR pour un badge vierge
       const payload = buildQrPayload(badge, schedule.name, opts);
       try {
         const t = resolveTheme(themeId, badge.role, opts.accentColorOverride);
-        qrCache.set(badge.name, await renderQrDataUrl(payload, t.primary));
+        qrCache.set(qrKey(badge), await renderQrDataUrl(payload, t.primary));
       } catch { /* skip */ }
     }
   }
@@ -977,7 +985,7 @@ export async function exportBadgesPDF(
     drawContentDecorations(doc, decoration, x, y, BADGE_W, BADGE_H, t.primary, t.accent, contentTop, contentBottom);
 
     // Name zone
-    const qrDataUrl = qrCache.get(badge.name);
+    const qrDataUrl = qrCache.get(qrKey(badge));
     const QR_SIZE = 24;
     const hasQr = !!qrDataUrl;
     const nameZoneTop = headerY + headerH + 4;
@@ -1042,15 +1050,10 @@ export async function exportBadgesPDF(
       doc.setLineWidth(0.4);
       const lineY = nameZoneTop + nameZoneH / 2 + 4;
       doc.line(nameLeft, lineY, nameRight, lineY);
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(6);
-      doc.setTextColor(t.textMuted[0], t.textMuted[1], t.textMuted[2]);
-      doc.text("Nom et prénom", nameCenterX, lineY + 3, { align: "center" });
       if (!badge.affiliation) {
         const affY = nameZoneTop + nameZoneH + 8;
         doc.setLineWidth(0.25);
         doc.line(nameLeft + 6, affY, nameRight - 6, affY);
-        doc.text("Établissement", nameCenterX, affY + 3, { align: "center" });
       }
     }
 
@@ -1070,8 +1073,8 @@ export async function exportBadgesPDF(
       } catch { /* skip */ }
     }
 
-    // Affiliation
-    if (badge.affiliation) {
+    // Affiliation / thématique (masquable par rôle, ex. modérateurs)
+    if (badge.affiliation && !(opts.hideThemeRoles ?? []).includes(badge.role)) {
       doc.setFont("helvetica", "italic");
       doc.setFontSize(9);
       doc.setTextColor(t.textMuted[0], t.textMuted[1], t.textMuted[2]);
