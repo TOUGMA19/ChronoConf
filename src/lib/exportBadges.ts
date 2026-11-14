@@ -42,6 +42,8 @@ export interface BadgeEntry {
   name: string;
   role: BadgeRole;
   affiliation?: string;
+  /** Badge vierge : pas de nom imprimé, des lignes à remplir à la main (pas de QR code). */
+  blank?: boolean;
 }
 
 export interface BadgeExportOptions {
@@ -846,6 +848,7 @@ export async function exportBadgesPDF(
   const qrCache = new Map<string, string>();
   if (opts.showQrCode) {
     for (const badge of badges) {
+      if (badge.blank || !badge.name.trim()) continue; // pas de QR pour un badge vierge
       const payload = buildQrPayload(badge, schedule.name, opts);
       try {
         const t = resolveTheme(themeId, badge.role, opts.accentColorOverride);
@@ -964,6 +967,24 @@ export async function exportBadgesPDF(
     display.forEach((line: string, idx: number) => {
       doc.text(line, nameCenterX, startY + idx * lineH, { align: "center" });
     });
+
+    // Badge vierge : lignes d'écriture à la place du nom (et de l'établissement)
+    if (badge.blank || !badge.name.trim()) {
+      doc.setDrawColor(t.textMuted[0], t.textMuted[1], t.textMuted[2]);
+      doc.setLineWidth(0.4);
+      const lineY = nameZoneTop + nameZoneH / 2 + 4;
+      doc.line(nameLeft, lineY, nameRight, lineY);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(6);
+      doc.setTextColor(t.textMuted[0], t.textMuted[1], t.textMuted[2]);
+      doc.text("Nom et prénom", nameCenterX, lineY + 3, { align: "center" });
+      if (!badge.affiliation) {
+        const affY = nameZoneTop + nameZoneH + 8;
+        doc.setLineWidth(0.25);
+        doc.line(nameLeft + 6, affY, nameRight - 6, affY);
+        doc.text("Établissement", nameCenterX, affY + 3, { align: "center" });
+      }
+    }
 
     // QR
     if (hasQr) {
