@@ -1,3 +1,5 @@
+import LatexText from "./LatexText";
+import { latexToUnicode } from "@/lib/latex";
 import { useState, useCallback, useMemo } from "react";
 import { ConferenceSchedule, Article, SpecialSlot, moveSlot, swapSlots, getSlotSnapshot, restoreSlotSnapshot, removeSpecialSlot, updateSpecialSlot, ScheduleSlot, MoveResult, getDayHours } from "@/lib/conference";
 import { getThemeColor, lightenRgb, rgbCss } from "@/lib/themeColors";
@@ -461,14 +463,14 @@ const ScheduleGrid = ({ schedule, articles, selectedDay, onSlotMoved, onEditSpec
                                 backgroundColor: bgColor,
                                 borderColor: borderColor,
                               }}
-                              title={`${article.title}\n${article.authors}\n${slot.startTime} - ${slot.endTime}`}
+                              title={latexToUnicode(`${article.title}\n${article.authors}\n${slot.startTime} - ${slot.endTime}`)}
                             >
                               <div className="flex items-start gap-1">
                                 {mode === "drag" && <GripVertical className="h-3 w-3 opacity-40 group-hover:opacity-80 transition-opacity flex-shrink-0 mt-0.5" />}
                                 {mode === "swap" && <ArrowLeftRight className={cn("h-3 w-3 flex-shrink-0 mt-0.5 transition-opacity", isSelected ? "opacity-100 text-accent" : "opacity-0 group-hover:opacity-60")} />}
                                 <div className="min-w-0 flex-1">
-                                  <p className="text-xs font-semibold truncate text-foreground">{article.title}</p>
-                                  <p className="text-[10px] text-muted-foreground truncate">{article.authors}</p>
+                                  <p className="text-xs font-semibold truncate text-foreground"><LatexText text={article.title} /></p>
+                                  <p className="text-[10px] text-muted-foreground truncate"><LatexText text={article.authors} /></p>
                                   {article.moderator && <p className="text-[10px] text-muted-foreground/70 truncate">Mod: {article.moderator}</p>}
                                   {article.sessionChair && <p className="text-[10px] text-muted-foreground/70 truncate">Prés: {article.sessionChair}</p>}
                                   <p className="text-[10px] text-muted-foreground/50">{slot.startTime}-{slot.endTime}</p>
@@ -532,7 +534,7 @@ const ScheduleGrid = ({ schedule, articles, selectedDay, onSlotMoved, onEditSpec
                                   {mode === "drag" && <GripVertical className="h-3 w-3 opacity-60 flex-shrink-0 mt-0.5" style={{ color: colors.text }} />}
                                   <span className="flex-shrink-0 mt-0.5" style={{ color: colors.text }}>{SPECIAL_SLOT_ICONS[ss.type]}</span>
                                   <div className="min-w-0 flex-1">
-                                    <p className="text-xs font-bold truncate" style={{ color: colors.text }}>{ss.title}</p>
+                                    <p className="text-xs font-bold truncate" style={{ color: colors.text }}><LatexText text={ss.title} /></p>
                                     {ss.speaker && <p className="text-[10px] truncate" style={{ color: colors.text, opacity: 0.7 }}>{ss.speaker}</p>}
                                     <p className="text-[10px]" style={{ color: colors.text, opacity: 0.5 }}>{ss.startTime}-{ss.endTime}</p>
                                   </div>

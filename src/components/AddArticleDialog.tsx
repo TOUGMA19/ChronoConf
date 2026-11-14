@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import LatexPreview from "@/components/LatexPreview";
 import { addArticle, getCategories, addCategory, getPresentationTypes, addPresentationType, ArticleType, ArticleStatus, DEFAULT_PRESENTATION_TYPES } from "@/lib/conference";
 import { secureTrim, validateDuration, LIMITS } from "@/lib/security";
 
@@ -77,6 +78,7 @@ const AddArticleDialog = ({ open, onOpenChange, onAdded }: AddArticleDialogProps
           <div className="space-y-2">
             <Label htmlFor="title">Titre *</Label>
             <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Titre de l'article" required maxLength={LIMITS.title} />
+            <LatexPreview text={title} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="authors">Auteur(s) *</Label>
@@ -93,6 +95,7 @@ const AddArticleDialog = ({ open, onOpenChange, onAdded }: AddArticleDialogProps
           <div className="space-y-2">
             <Label htmlFor="abstract">Résumé</Label>
             <Textarea id="abstract" value={abstract} onChange={(e) => setAbstract(e.target.value)} placeholder="Résumé de l'article..." rows={3} maxLength={LIMITS.abstract} />
+            <LatexPreview text={abstract} />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">

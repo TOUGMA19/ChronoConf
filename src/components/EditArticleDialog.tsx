@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import LatexPreview from "@/components/LatexPreview";
 import { updateArticle, getCategories, addCategory, getPresentationTypes, addPresentationType, Article, ArticleType, ArticleStatus, DEFAULT_PRESENTATION_TYPES } from "@/lib/conference";
 import { toast } from "sonner";
 
@@ -93,6 +94,7 @@ const EditArticleDialog = ({ open, onOpenChange, article, onUpdated }: EditArtic
           <div className="space-y-2">
             <Label htmlFor="edit-title">Titre *</Label>
             <Input id="edit-title" value={title} onChange={(e) => setTitle(e.target.value)} required />
+            <LatexPreview text={title} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="edit-authors">Auteur(s) *</Label>
@@ -113,6 +115,7 @@ const EditArticleDialog = ({ open, onOpenChange, article, onUpdated }: EditArtic
           <div className="space-y-2">
             <Label htmlFor="edit-abstract">Résumé</Label>
             <Textarea id="edit-abstract" value={abstract} onChange={(e) => setAbstract(e.target.value)} rows={3} />
+            <LatexPreview text={abstract} />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
