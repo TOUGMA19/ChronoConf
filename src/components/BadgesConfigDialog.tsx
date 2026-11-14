@@ -1035,7 +1035,7 @@ function BadgePreview(p: PreviewProps) {
             {p.conferenceName}
           </div>
           {p.subtitle && (<div className="italic text-[9px] text-slate-500 truncate mt-0.5">{p.subtitle}</div>)}
-          {meta && (<div className="text-[9px] mt-0.5 truncate" style={{ color: p.roleColor }}>{meta}</div>)}
+          {meta && (<div className="text-[9px] mt-0.5 leading-tight" style={{ color: p.roleColor, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{meta}</div>)}
         </div>
       </div>
 
