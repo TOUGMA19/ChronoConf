@@ -881,40 +881,89 @@ export async function exportBadgesPDF(
       } catch { /* skip */ }
     }
 
-    // Conference name auto-shrink
+    // En-tête : nom de la conférence, sous-titre, date et lieu.
+    // On réduit les tailles (puis on passe à la ligne) jusqu'à ce que tout tienne dans l'en-tête ;
+    // la date et le lieu passent sur deux lignes si besoin au lieu d'être coupés.
     doc.setTextColor(t.textPrimary[0], t.textPrimary[1], t.textPrimary[2]);
-    doc.setFont("helvetica", "bold");
     const titleMaxW = BADGE_W - (textStartX - x) - 5;
-    let titleSize = 11;
-    let titleLines: string[] = [];
-    while (titleSize >= 6) {
-      doc.setFontSize(titleSize);
-      titleLines = doc.splitTextToSize(schedule.name, titleMaxW);
-      const overflow = titleLines.some((l: string) => doc.getTextWidth(l) > titleMaxW);
-      if (titleLines.length <= 2 && !overflow) break;
-      titleSize -= 0.5;
-    }
-    doc.setFontSize(titleSize);
-    titleLines.slice(0, 2).forEach((line: string, idx: number) => {
-      doc.text(line, textStartX, headerY + 7 + idx * (titleSize * 0.4));
-    });
+    const headerBottom = headerY + headerH - 1.5; // dernière ligne de base autorisée
+    const wrap = (txt: string, w: number): string[] => (doc.splitTextToSize(txt, w) as string[]);
+    const clip = (lines: string[], max: number, w: number): string[] => {
+      if (lines.length <= max) return lines;
+      const kept = lines.slice(0, max);
+      let last = kept[max - 1] + " " + lines.slice(max).join(" ");
+      while (last.length > 1 && doc.getTextWidth(last + "…") > w) last = last.slice(0, -1);
+      kept[max - 1] = last.trim() + "…";
+      return kept;
+    };
+    const hasMeta = !!(opts.eventDate || opts.eventLocation);
+    const subText = opts.subtitle || "";
 
-    let metaY = headerY + 7 + Math.min(titleLines.length, 2) * (titleSize * 0.4) + 1;
-    if (opts.subtitle) {
+    type HeaderLayout = { titleSize: number; titleLines: string[]; metaSize: number; metaLines: string[]; subLines: string[]; endY: number };
+    const layoutHeader = (titleSize: number, metaSize: number): HeaderLayout => {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(titleSize);
+      const titleLines = wrap(schedule.name, titleMaxW);
+      const tl = titleSize * 0.4;
+      let yy = headerY + 6.5 + (titleLines.length - 1) * tl;
       doc.setFont("helvetica", "italic");
-      doc.setFontSize(7);
-      doc.setTextColor(t.textMuted[0], t.textMuted[1], t.textMuted[2]);
-      const subLines = doc.splitTextToSize(opts.subtitle, titleMaxW);
-      doc.text(subLines.slice(0, 1), textStartX, metaY);
-      metaY += 3.5;
-    }
-    if (opts.eventDate || opts.eventLocation) {
+      doc.setFontSize(Math.min(7, metaSize));
+      const subLines = subText ? wrap(subText, titleMaxW).slice(0, 1) : [];
+      if (subLines.length) yy += 1 + Math.min(7, metaSize) * 0.42;
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(7);
+      doc.setFontSize(metaSize);
+      let metaLines: string[] = [];
+      if (hasMeta) {
+        const both = [opts.eventDate, opts.eventLocation].filter(Boolean).join("  •  ");
+        metaLines = wrap(both, titleMaxW);
+        if (metaLines.length > 1 && opts.eventDate && opts.eventLocation) {
+          // date sur sa ligne, lieu (éventuellement sur 2 lignes) en dessous
+          metaLines = [...wrap(opts.eventDate, titleMaxW), ...wrap(opts.eventLocation, titleMaxW)];
+        }
+        yy += 1 + (metaLines.length) * metaSize * 0.42;
+      }
+      const overflowW = titleLines.some((l) => { doc.setFont("helvetica", "bold"); doc.setFontSize(titleSize); return doc.getTextWidth(l) > titleMaxW; });
+      return { titleSize, titleLines, metaSize, metaLines, subLines, endY: overflowW ? 999 : yy };
+    };
+
+    let chosen: HeaderLayout | null = null;
+    search: for (let ts = 11; ts >= 6; ts -= 0.5) {
+      for (let ms = 7; ms >= 5; ms -= 0.5) {
+        const l = layoutHeader(ts, ms);
+        const maxTitleLines = ts >= 8 ? 2 : 3;
+        if (l.titleLines.length <= maxTitleLines && l.endY <= headerBottom) { chosen = l; break search; }
+      }
+    }
+    if (!chosen) {
+      // dernier recours : tailles minimales, texte raccourci avec « … »
+      chosen = layoutHeader(6, 5);
+      chosen.titleLines = clip(chosen.titleLines, 3, titleMaxW);
+      chosen.metaLines = clip(chosen.metaLines, 3, titleMaxW);
+    }
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(chosen.titleSize);
+    doc.setTextColor(t.textPrimary[0], t.textPrimary[1], t.textPrimary[2]);
+    const tlh = chosen.titleSize * 0.4;
+    chosen.titleLines.forEach((line, idx) => doc.text(line, textStartX, headerY + 6.5 + idx * tlh));
+    let metaY = headerY + 6.5 + (chosen.titleLines.length - 1) * tlh + 1;
+    if (chosen.subLines.length) {
+      const subSize = Math.min(7, chosen.metaSize);
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(subSize);
+      doc.setTextColor(t.textMuted[0], t.textMuted[1], t.textMuted[2]);
+      metaY += subSize * 0.42;
+      doc.text(chosen.subLines, textStartX, metaY);
+    }
+    if (chosen.metaLines.length) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(chosen.metaSize);
       doc.setTextColor(rR, rG, rB);
-      const meta = [opts.eventDate, opts.eventLocation].filter(Boolean).join("  •  ");
-      const metaLines = doc.splitTextToSize(meta, titleMaxW);
-      doc.text(metaLines.slice(0, 1), textStartX, metaY);
+      chosen.metaLines.forEach((line, idx) => {
+        metaY += chosen!.metaSize * 0.42;
+        doc.text(line, textStartX, metaY);
+        void idx;
+      });
     }
 
     // Separator
@@ -940,27 +989,46 @@ export async function exportBadgesPDF(
 
     doc.setTextColor(t.textPrimary[0], t.textPrimary[1], t.textPrimary[2]);
     doc.setFont("helvetica", "bold");
-    let fontSize = 22;
-    doc.setFontSize(fontSize);
-    let nameLines: string[] = doc.splitTextToSize(badge.name, nameAreaW);
-    const fits = (size: number, lines: string[]) => {
+    // Nom : grande taille sur 2 lignes max ; si trop long, 3 lignes en plus petit ; « … » en tout dernier recours.
+    // Retour à la ligne aux espaces et après les tirets (jamais au milieu d'un mot, sauf dernier recours).
+    const wrapName = (size: number, allowBreak = false): string[] => {
       doc.setFontSize(size);
-      if (lines.length > 2) return false;
-      return lines.every((l: string) => doc.getTextWidth(l) <= nameAreaW);
+      const chunks: { text: string; glue: boolean }[] = [];
+      badge.name.trim().split(/\s+/).forEach((word) => {
+        word.split(/(?<=-)/).forEach((part, i) => chunks.push({ text: part, glue: i > 0 }));
+      });
+      const lines: string[] = [];
+      let cur = "";
+      chunks.forEach((c, idx) => {
+        const candidate = cur === "" ? c.text : cur + (c.glue ? "" : " ") + c.text;
+        if (cur !== "" && doc.getTextWidth(candidate) > nameAreaW) { lines.push(cur); cur = c.text; }
+        else cur = candidate;
+        void idx;
+      });
+      if (cur) lines.push(cur);
+      // un seul morceau plus large que la zone : dernier recours, découpe de jsPDF
+      if (allowBreak && lines.some((l) => doc.getTextWidth(l) > nameAreaW)) {
+        return doc.splitTextToSize(badge.name, nameAreaW) as string[];
+      }
+      return lines;
     };
-    while (fontSize > 8 && !fits(fontSize, nameLines)) {
-      fontSize -= 1;
-      doc.setFontSize(fontSize);
-      nameLines = doc.splitTextToSize(badge.name, nameAreaW);
-    }
-    nameLines = doc.splitTextToSize(badge.name, nameAreaW);
-    if (nameLines.length > 2) {
-      let tail = nameLines.slice(1).join(" ");
+    const nameFits = (size: number, maxLines: number): boolean => {
+      const ls = wrapName(size);
+      return ls.length <= maxLines && ls.every((l) => doc.getTextWidth(l) <= nameAreaW);
+    };
+    let fontSize = 0;
+    for (let sz = 22; sz >= 10 && !fontSize; sz -= 1) if (nameFits(sz, 2)) fontSize = sz;
+    for (let sz = 14; sz >= 6 && !fontSize; sz -= 0.5) if (nameFits(sz, 3)) fontSize = sz;
+    const fitted = fontSize > 0;
+    if (!fitted) fontSize = 6;
+    let nameLines: string[] = wrapName(fontSize, !fitted);
+    if (nameLines.length > 3) {
+      let tail = nameLines.slice(2).join(" ");
       while (tail.length > 0 && doc.getTextWidth(tail + "…") > nameAreaW) tail = tail.slice(0, -1);
-      nameLines = [nameLines[0], (tail.trim() + "…")];
+      nameLines = [nameLines[0], nameLines[1], tail.trim() + "…"];
     }
     doc.setFontSize(fontSize);
-    const display = nameLines.slice(0, 2);
+    const display = nameLines.slice(0, 3);
     const lineH = fontSize * 0.45;
     const blockH = display.length * lineH;
     const startY = nameZoneTop + (nameZoneH - blockH) / 2 + lineH * 0.7;
