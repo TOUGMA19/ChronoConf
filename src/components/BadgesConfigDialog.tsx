@@ -197,9 +197,16 @@ export function BadgesConfigDialog({
     });
   };
 
+  // Badges vierges (sans nom) : à remplir à la main, ajoutés en plus des badges nominatifs sélectionnés.
+  const [blankCount, setBlankCount] = useState(0);
+  const [blankRole, setBlankRole] = useState<BadgeRole>("participant");
+
   const exportableBadges = useMemo(
-    () => editedBadges.filter((b) => roleFilter.has(b.role)),
-    [editedBadges, roleFilter],
+    () => [
+      ...editedBadges.filter((b) => roleFilter.has(b.role)),
+      ...Array.from({ length: blankCount }, (): BadgeEntry => ({ name: "", role: blankRole, blank: true })),
+    ],
+    [editedBadges, roleFilter, blankCount, blankRole],
   );
 
   const handleGenerate = () => {
@@ -555,6 +562,32 @@ export function BadgesConfigDialog({
                 countOf={(r) => filteredBadges.filter((x) => x.role === r).length}
                 onSwap={swapRoles}
               />
+
+              <div className="rounded-md border border-dashed border-border bg-muted/30 p-2 space-y-1.5">
+                <p className="text-[11px] font-medium text-muted-foreground">
+                  Badges vierges (sans nom, à remplir à la main)
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={500}
+                    value={blankCount}
+                    onChange={(e) => setBlankCount(Math.max(0, Math.min(500, parseInt(e.target.value || "0", 10) || 0)))}
+                    className="h-8 w-20 text-sm"
+                  />
+                  <span className="text-xs text-muted-foreground">badge(s) de rôle</span>
+                  <Select value={blankRole} onValueChange={(v) => setBlankRole(v as BadgeRole)}>
+                    <SelectTrigger className="h-8 w-[170px] text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {ROLE_OPTIONS.map((r) => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  Ils portent le logo, l'événement et le rôle, avec des lignes pour écrire le nom. Pour n'imprimer que des badges vierges, cliquez sur « Aucun » dans les rôles ci-dessous.
+                </p>
+              </div>
 
               <div className="rounded-md border border-border bg-muted/20 p-2 space-y-2">
                 <div className="flex items-center justify-between gap-2">
@@ -1026,7 +1059,7 @@ function BadgePreview(p: PreviewProps) {
             overflowWrap: "anywhere",
           }}
         >
-          {p.name || "—"}
+          {p.name || <span className="block h-6 w-40 border-b border-slate-400" />}
         </div>
       </div>
 
