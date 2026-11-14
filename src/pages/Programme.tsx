@@ -1,3 +1,4 @@
+import LatexText from "@/components/LatexText";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -213,10 +214,10 @@ const Programme = () => {
                         {item.kind === "special" && (
                           <Badge variant="outline" className="gap-1 text-xs">{SPECIAL_ICON[item.type]} {SPECIAL_LABEL[item.type] || item.type}</Badge>
                         )}
-                        <p className="font-medium text-foreground truncate">{item.title}</p>
+                        <p className="font-medium text-foreground truncate"><LatexText text={item.title} /></p>
                       </div>
                       {item.kind === "slot" && item.authors && (
-                        <p className="text-sm text-muted-foreground truncate">{item.authors}</p>
+                        <p className="text-sm text-muted-foreground truncate"><LatexText text={item.authors} /></p>
                       )}
                       {item.kind === "special" && item.speaker && (
                         <p className="text-sm text-muted-foreground truncate">{item.speaker}</p>

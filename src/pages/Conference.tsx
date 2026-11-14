@@ -1,3 +1,5 @@
+import LatexText from "@/components/LatexText";
+import { latexToUnicode } from "@/lib/latex";
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { Plus, Calendar, Trash2, Zap, FileText, Users, Clock, Upload, Download, UserCheck, X, GraduationCap, Check, AlertTriangle, BarChart3, ChevronDown, ChevronUp, Mic, Pencil, Sun, Moon, Tag, Award, ShieldCheck, LogOut, Save, Cloud, Send, Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -558,7 +560,7 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
                   {!schedule ? " (aucun chronogramme généré)" : ""}
                 </p>
                 <p className="text-muted-foreground mt-1">
-                  {unscheduled.slice(0, 5).map((a) => a.title).join(" · ")}
+                  {unscheduled.slice(0, 5).map((a) => latexToUnicode(a.title)).join(" · ")}
                   {unscheduled.length > 5 ? ` · … +${unscheduled.length - 5} autres` : ""}
                 </p>
                 <p className="text-muted-foreground mt-1">
@@ -1212,12 +1214,12 @@ const ArticleRow = ({ article, unscheduled, onDelete, onEdit }: { article: Artic
   <div className="flex items-center justify-between p-4 hover:bg-muted/50 transition-colors">
     <div className="min-w-0 flex-1 cursor-pointer" onClick={() => onEdit(article)}>
       <div className="flex items-center gap-2 mb-1">
-        <p className="font-medium text-foreground truncate">{article.title}</p>
+        <p className="font-medium text-foreground truncate"><LatexText text={article.title} /></p>
         <Badge variant="outline" className={STATUS_BADGE[article.status]}>{STATUS_LABEL[article.status]}</Badge>
         <Badge variant="outline" className="text-xs capitalize">{article.type || "—"}</Badge>
         {unscheduled && <Badge variant="outline" className="text-xs bg-warning/15 text-warning border-warning/30">Non planifié</Badge>}
       </div>
-      <p className="text-sm text-muted-foreground truncate">{article.authors}{article.moderator ? ` · Mod: ${article.moderator}` : ""}{article.sessionChair ? ` · Prés: ${article.sessionChair}` : ""} · {article.category} · {article.duration} min</p>
+      <p className="text-sm text-muted-foreground truncate"><LatexText text={article.authors} />{article.moderator ? ` · Mod: ${article.moderator}` : ""}{article.sessionChair ? ` · Prés: ${article.sessionChair}` : ""} · {article.category} · {article.duration} min</p>
     </div>
     <div className="flex items-center gap-1 ml-2">
       <Button variant="ghost" size="icon" onClick={() => onEdit(article)} className="text-muted-foreground hover:text-primary"><Pencil className="h-4 w-4" /></Button>
