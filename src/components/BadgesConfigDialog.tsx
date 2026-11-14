@@ -101,6 +101,9 @@ export function BadgesConfigDialog({
 
   // QR code options
   const [showQrCode, setShowQrCode] = useState(false);
+  // Thématique imprimée sous le nom : au choix pour les modérateurs / présidents de séance.
+  const [showModeratorTheme, setShowModeratorTheme] = useState(true);
+  const [showChairTheme, setShowChairTheme] = useState(true);
   const [qrMode, setQrMode] = useState<"url" | "vcard">("url");
   const [qrBaseUrl, setQrBaseUrl] = useState("");
 
@@ -220,6 +223,10 @@ export function BadgesConfigDialog({
         shape,
         decoration,
         showQrCode,
+        hideThemeRoles: [
+          ...(showModeratorTheme ? [] : (["moderator"] as BadgeRole[])),
+          ...(showChairTheme ? [] : (["chair"] as BadgeRole[])),
+        ],
         qrMode,
         qrBaseUrl: qrBaseUrl.trim() || undefined,
         cutMarkLength,
@@ -362,6 +369,20 @@ export function BadgesConfigDialog({
                     )}
                   </>
                 )}
+              </div>
+
+              {/* ---- Thématique des modérateurs ---- */}
+              <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
+                <p className="text-sm font-medium">Thématique sous le nom</p>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="theme-moderator" className="cursor-pointer text-sm font-normal">Afficher pour les modérateurs</Label>
+                  <Switch id="theme-moderator" checked={showModeratorTheme} onCheckedChange={setShowModeratorTheme} />
+                </div>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="theme-chair" className="cursor-pointer text-sm font-normal">Afficher pour les présidents de séance</Label>
+                  <Switch id="theme-chair" checked={showChairTheme} onCheckedChange={setShowChairTheme} />
+                </div>
+                <p className="text-[11px] text-muted-foreground">Les autres rôles gardent leur thématique.</p>
               </div>
             </TabsContent>
 
@@ -585,7 +606,7 @@ export function BadgesConfigDialog({
                   </Select>
                 </div>
                 <p className="text-[10px] text-muted-foreground">
-                  Ils portent le logo, l'événement et le rôle, avec des lignes pour écrire le nom. Pour n'imprimer que des badges vierges, cliquez sur « Aucun » dans les rôles ci-dessous.
+                  Ils portent le logo, l'événement, le rôle et le QR code (si activé : lien de base, sinon nom de la conférence), avec des lignes pour écrire à la main. Pour n'imprimer que des badges vierges, cliquez sur « Aucun » dans les rôles ci-dessous.
                 </p>
               </div>
 
@@ -675,7 +696,7 @@ export function BadgesConfigDialog({
               partnerLogos={partnerLogos}
               customLogoDataUrl={customLogoDataUrl}
               name={previewName}
-              affiliation={previewAffiliation}
+              affiliation={(previewRole === "moderator" && !showModeratorTheme) || (previewRole === "chair" && !showChairTheme) ? "" : previewAffiliation}
               roleLabel={role.label}
               roleColor={THEME_PREVIEW[theme].speaker}
               roleBg={role.bg}
