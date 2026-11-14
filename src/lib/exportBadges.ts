@@ -986,7 +986,9 @@ export async function exportBadgesPDF(
 
     // Name zone
     const qrDataUrl = qrCache.get(qrKey(badge));
-    const QR_SIZE = 24;
+    const isBlank = !!badge.blank || !badge.name.trim();
+    // Badge vierge : QR plus grand, centré dans le badge (rien d'autre à la place du nom)
+    const QR_SIZE = isBlank ? 36 : 24;
     const hasQr = !!qrDataUrl;
     const nameZoneTop = headerY + headerH + 4;
     const nameZoneH = 42;
@@ -1044,23 +1046,10 @@ export async function exportBadgesPDF(
       doc.text(line, nameCenterX, startY + idx * lineH, { align: "center" });
     });
 
-    // Badge vierge : lignes d'écriture à la place du nom (et de l'établissement)
-    if (badge.blank || !badge.name.trim()) {
-      doc.setDrawColor(t.textMuted[0], t.textMuted[1], t.textMuted[2]);
-      doc.setLineWidth(0.4);
-      const lineY = nameZoneTop + nameZoneH / 2 + 4;
-      doc.line(nameLeft, lineY, nameRight, lineY);
-      if (!badge.affiliation) {
-        const affY = nameZoneTop + nameZoneH + 8;
-        doc.setLineWidth(0.25);
-        doc.line(nameLeft + 6, affY, nameRight - 6, affY);
-      }
-    }
-
     // QR
     if (hasQr) {
       try {
-        const qrX = x + BADGE_W - QR_SIZE - 5;
+        const qrX = isBlank ? x + (BADGE_W - QR_SIZE) / 2 : x + BADGE_W - QR_SIZE - 5;
         const qrY = nameZoneTop + (nameZoneH - QR_SIZE) / 2;
         doc.setDrawColor(t.separator[0], t.separator[1], t.separator[2]);
         doc.setLineWidth(0.2);
