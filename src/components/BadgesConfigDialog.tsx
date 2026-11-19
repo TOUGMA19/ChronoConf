@@ -62,6 +62,7 @@ const ROLE_OPTIONS: RoleStyle[] = [
   { value: "chair",       label: "Président de séance",color: "rgb(126,34,206)", bg: "rgb(243,232,255)" },
   { value: "participant", label: "Participant",        color: "rgb(71,85,105)",  bg: "rgb(226,232,240)" },
   { value: "organizer",   label: "Organisateur",       color: "rgb(180,83,9)",   bg: "rgb(254,243,199)" },
+  { value: "scientific",  label: "Comité scientifique",color: "rgb(15,118,110)", bg: "rgb(204,251,241)" },
   { value: "other",       label: "Autre",              color: "rgb(100,116,139)",bg: "rgb(241,245,249)" },
 ];
 
@@ -112,7 +113,7 @@ export function BadgesConfigDialog({
   const [search, setSearch] = useState("");
   // Role filter — only badges whose role is included will be generated.
   const [roleFilter, setRoleFilter] = useState<Set<BadgeRole>>(
-    () => new Set<BadgeRole>(["speaker", "moderator", "chair", "participant", "organizer", "other"]),
+    () => new Set<BadgeRole>(["speaker", "moderator", "chair", "participant", "organizer", "scientific", "other"]),
   );
 
   // Ne réinitialise la liste éditée que si le CONTENU change (synchro, bascule
@@ -187,7 +188,7 @@ export function BadgesConfigDialog({
   }, [editedBadges, search]);
 
   const roleCounts = useMemo(() => {
-    const c: Record<BadgeRole, number> = { speaker: 0, moderator: 0, chair: 0, participant: 0, organizer: 0, other: 0 };
+    const c: Record<BadgeRole, number> = { speaker: 0, moderator: 0, chair: 0, participant: 0, organizer: 0, scientific: 0, other: 0 };
     editedBadges.forEach((b) => c[b.role]++);
     return c;
   }, [editedBadges]);
@@ -620,7 +621,7 @@ export function BadgesConfigDialog({
                       size="sm"
                       variant="ghost"
                       className="h-6 px-2 text-[10px]"
-                      onClick={() => setRoleFilter(new Set<BadgeRole>(["speaker", "moderator", "chair", "participant", "organizer", "other"]))}
+                      onClick={() => setRoleFilter(new Set<BadgeRole>(["speaker", "moderator", "chair", "participant", "organizer", "scientific", "other"]))}
                     >
                       Tous
                     </Button>
