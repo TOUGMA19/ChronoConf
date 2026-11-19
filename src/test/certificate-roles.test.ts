@@ -44,3 +44,21 @@ describe("attestations : rôles multiples", () => {
     expect(names.filter((n) => n.startsWith("attestation-awa-traore-auteur"))).toHaveLength(2);
   });
 });
+
+describe("attestations : personnes enregistrées dans les listes", () => {
+  it("présidents / rapporteurs / modérateurs des listes reçoivent une attestation sans communication", () => {
+    const r = buildRecipientsFromSchedule({ ...schedule, slots: [] }, [], {
+      includeUnscheduled: false,
+      moderators: ["Dr Modo"],
+      sessionChairs: ["Pr Un", "Pr Deux"],
+      rapporteurs: ["Dr Rap"],
+    });
+    expect(r.map((x) => `${x.role}:${x.name}`).sort()).toEqual([
+      "chair:Pr Deux", "chair:Pr Un", "moderator:Dr Modo", "rapporteur:Dr Rap",
+    ]);
+  });
+  it("pas de doublon avec ceux déjà rattachés à une séance", () => {
+    const r = buildRecipientsFromSchedule(schedule, arts, { includeUnscheduled: false, sessionChairs: ["Pr Ilboudo", "Pr Nouveau"] });
+    expect(r.filter((x) => x.role === "chair").map((x) => x.name).sort()).toEqual(["Pr Ilboudo", "Pr Nouveau"]);
+  });
+});
