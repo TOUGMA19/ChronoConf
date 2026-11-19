@@ -18,6 +18,7 @@ import {
   CertificateLayout,
   CERT_ROLE_LABEL,
   exportCertificatesPDF,
+  exportCertificatesPDFZip,
   exportCertificatesPPTX,
   inspectPptxTemplate,
   PptxTemplateInfo,
@@ -198,6 +199,19 @@ export default function CertificatesConfigDialog({
     try {
       await exportCertificatesPDF(filteredRecipients, buildOpts());
       toast.success(`${filteredRecipients.length} attestations PDF générées !`);
+      onOpenChange(false);
+    } catch (e) {
+      console.error(e);
+      toast.error("Erreur lors de la génération PDF");
+    } finally { setBusy(false); }
+  };
+
+  const handleExportPDFZip = async () => {
+    if (filteredRecipients.length === 0) { toast.error("Sélectionnez au moins un destinataire"); return; }
+    setBusy(true);
+    try {
+      await exportCertificatesPDFZip(filteredRecipients, buildOpts());
+      toast.success(`${filteredRecipients.length} attestations PDF individuelles générées (zip) !`);
       onOpenChange(false);
     } catch (e) {
       console.error(e);
@@ -610,6 +624,10 @@ export default function CertificatesConfigDialog({
             <Button onClick={handleExportPPTX} variant="outline" disabled={busy || !pptxFile} className="gap-2">
               <FileText className="h-4 w-4" />
               Générer .pptx (zip)
+            </Button>
+            <Button onClick={handleExportPDFZip} variant="outline" disabled={busy} className="gap-2" title="Un PDF par personne, nommé attestation-nom-prenom-role.pdf">
+              <Download className="h-4 w-4" />
+              PDF individuels (zip)
             </Button>
             <Button onClick={handleExportPDF} disabled={busy} className="gap-2 gradient-accent text-accent-foreground">
               <Download className="h-4 w-4" />
