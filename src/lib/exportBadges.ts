@@ -7,7 +7,7 @@ import { splitAuthors, normalizeName, getUnscheduledArticles, cleanArticles, cle
 // PUBLIC TYPES
 // ===========================================================================
 
-export type BadgeRole = "speaker" | "moderator" | "chair" | "participant" | "organizer" | "other";
+export type BadgeRole = "speaker" | "moderator" | "chair" | "participant" | "organizer" | "scientific" | "other";
 
 /**
  * 50 visual themes (color palettes + base style family).
@@ -77,6 +77,7 @@ export const ROLE_LABEL: Record<BadgeRole, string> = {
   chair: "Président de séance",
   participant: "Participant",
   organizer: "Organisateur",
+  scientific: "Comité scientifique",
   other: "Autre",
 };
 
@@ -205,7 +206,7 @@ function resolveTheme(themeId: BadgeTheme, role: BadgeRole, override?: RGB): Res
   // Fallback mapping for roles not explicitly defined per theme.
   const roleColorFallback: Record<BadgeRole, keyof ThemeData> = {
     speaker: "speaker", moderator: "moderator", chair: "chair", participant: "participant",
-    organizer: "chair", other: "participant",
+    organizer: "chair", scientific: "chair", other: "participant",
   };
   const key = roleColorFallback[role] || "participant";
   const primary: RGB = override || (data as any)[key] || data.participant;
@@ -363,6 +364,8 @@ export interface BuildListOptions {
   includeUnscheduled?: boolean;
   /** Organisateurs à ajouter (dédoublonnés par nom normalisé). */
   organizers?: { name: string; role?: string }[];
+  /** Membres du comité scientifique (nom + fonction). */
+  scientificCommittee?: { name: string; role?: string }[];
 }
 
 export function buildBadgesFromSchedule(
@@ -370,12 +373,12 @@ export function buildBadgesFromSchedule(
   articles: Article[],
   options: BuildListOptions = {},
 ): BadgeEntry[] {
-  const { includeUnscheduled = true, organizers = [] } = options;
+  const { includeUnscheduled = true, organizers = [], scientificCommittee = [] } = options;
   // LaTeX → texte Unicode lisible (noms accentués, thématiques…)
   articles = cleanArticles(articles);
   schedule = cleanSchedule(schedule);
   const byName = new Map<string, BadgeEntry>();
-  const priority: Record<BadgeRole, number> = { chair: 3, moderator: 2, speaker: 1, organizer: 1, other: 0, participant: 0 };
+  const priority: Record<BadgeRole, number> = { chair: 3, moderator: 2, speaker: 1, organizer: 1, scientific: 1, other: 0, participant: 0 };
 
   const upsert = (name: string, role: BadgeRole, affiliation?: string) => {
     const display = name.trim();
@@ -414,6 +417,10 @@ export function buildBadgesFromSchedule(
   for (const o of organizers) {
     const key = normalizeName(o.name);
     if (key && !byName.has(key)) upsert(o.name, "organizer", o.role || undefined);
+  }
+  for (const m of scientificCommittee) {
+    const key = normalizeName(m.name);
+    if (key && !byName.has(key)) upsert(m.name, "scientific", m.role || undefined);
   }
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name, "fr"));
 }

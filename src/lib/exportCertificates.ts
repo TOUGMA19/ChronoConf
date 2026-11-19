@@ -12,7 +12,7 @@ import { ensureUnicodeFonts, fontFamilyFor, pdfSafeText } from "./pdfFont";
 // TYPES
 // ===========================================================================
 
-export type CertificateRole = "speaker" | "moderator" | "chair" | "rapporteur" | "participant" | "organizer" | "other";
+export type CertificateRole = "speaker" | "moderator" | "chair" | "rapporteur" | "participant" | "organizer" | "scientific" | "other";
 
 export const CERT_ROLE_LABEL: Record<CertificateRole, string> = {
   speaker: "Auteur / Présentateur",
@@ -21,6 +21,7 @@ export const CERT_ROLE_LABEL: Record<CertificateRole, string> = {
   rapporteur: "Rapporteur",
   participant: "Participant",
   organizer: "Organisateur",
+  scientific: "Membre du comité scientifique",
   other: "Autre",
 };
 
@@ -231,6 +232,8 @@ export interface BuildRecipientsOptions {
   moderators?: string[];
   sessionChairs?: string[];
   rapporteurs?: string[];
+  /** Membres du comité scientifique (nom + fonction). */
+  scientificCommittee?: { name: string; role?: string }[];
 }
 
 /** Clé d'identité d'un destinataire (nom normalisé + rôle + titre). */
@@ -251,7 +254,7 @@ export function buildRecipientsFromSchedule(
   articles: Article[],
   options: BuildRecipientsOptions = {},
 ): CertificateRecipient[] {
-  const { includeUnscheduled = true, organizers = [], moderators = [], sessionChairs = [], rapporteurs = [] } = options;
+  const { includeUnscheduled = true, organizers = [], moderators = [], sessionChairs = [], rapporteurs = [], scientificCommittee = [] } = options;
   // LaTeX → texte Unicode lisible (titres, noms accentués…)
   articles = cleanArticles(articles);
   schedule = cleanSchedule(schedule);
@@ -306,6 +309,11 @@ export function buildRecipientsFromSchedule(
   fromList(moderators, "moderator");
   fromList(sessionChairs, "chair");
   fromList(rapporteurs, "rapporteur");
+
+  // Comité scientifique : une attestation de membre par personne, en plus de ses autres rôles.
+  for (const m of scientificCommittee) {
+    upsert({ name: m.name, role: "scientific", affiliation: m.role || undefined });
+  }
 
   // Organisateurs : une attestation d'organisateur PAR PERSONNE, même si elle a déjà une attestation
   // d'auteur, de modérateur… (la clé d'unicité contient le rôle ; seuls les doublons d'organisateur sont fusionnés).
@@ -393,6 +401,7 @@ function blockTextFor(
         : rec.role === "chair" ? "a présidé une session scientifique"
         : rec.role === "rapporteur" ? "a assuré la fonction de rapporteur d'une session"
         : rec.role === "organizer" ? "a contribué à l'organisation"
+        : rec.role === "scientific" ? "a contribué en tant que membre du comité scientifique"
         : rec.role === "other" ? "a contribué"
         : "a participé";
       return `${verb} lors de la conférence`;
@@ -501,6 +510,7 @@ const ROLE_FILE_SLUG: Record<CertificateRole, string> = {
   rapporteur: "rapporteur",
   participant: "participant",
   organizer: "organisateur",
+  scientific: "comite-scientifique",
   other: "autre",
 };
 

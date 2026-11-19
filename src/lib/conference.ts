@@ -90,6 +90,7 @@ interface PersistedData {
   rapporteurGroups?: string[];
   genSettings?: Record<string, unknown>;
   organizers?: Organizer[];
+  scientificCommittee?: Organizer[];
   presentationTypes?: string[];
   savedAt: number;
 }
@@ -97,7 +98,7 @@ interface PersistedData {
 function saveToStorage(): void {
   try {
     const data: PersistedData = {
-      articles, schedule, categories, moderators, sessionChairs, rapporteurs: rapporteursList, rapporteurGroups, genSettings, organizers, presentationTypes,
+      articles, schedule, categories, moderators, sessionChairs, rapporteurs: rapporteursList, rapporteurGroups, genSettings, organizers, scientificCommittee, presentationTypes,
       savedAt: Date.now(),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -133,6 +134,9 @@ function loadFromStorage(): void {
     genSettings = data.genSettings && typeof data.genSettings === "object" ? data.genSettings : {};
     organizers = Array.isArray(data.organizers)
       ? data.organizers.filter((o: any) => o && typeof o.name === "string").map((o: any) => ({ name: String(o.name), role: String(o.role || "") }))
+      : [];
+    scientificCommittee = Array.isArray(data.scientificCommittee)
+      ? data.scientificCommittee.filter((o: any) => o && typeof o.name === "string").map((o: any) => ({ name: String(o.name), role: String(o.role || "") }))
       : [];
     presentationTypes = Array.isArray(data.presentationTypes) && data.presentationTypes.length > 0
       ? data.presentationTypes
@@ -174,6 +178,7 @@ let rapporteursList: string[] = [];
 let genSettings: Record<string, unknown> = {}; // réglages de génération / assignations (salles, modérateurs, rapporteurs, horaires…)
 let rapporteurGroups: string[] = []; // groupes (binômes, trinômes…) stockés sous la forme « A et B et C »
 let organizers: Organizer[] = [];
+let scientificCommittee: Organizer[] = []; // membres du comité scientifique (nom + fonction)
 let presentationTypes: string[] = [...DEFAULT_PRESENTATION_TYPES];
 
 // ===== Presentation types CRUD =====
@@ -430,6 +435,43 @@ export function clearOrganizers(): void {
   saveToStorage();
 }
 
+// ===== Comité scientifique (nom + fonction) =====
+export function getScientificCommittee(): Organizer[] {
+  return scientificCommittee.map((o) => ({ ...o }));
+}
+
+export function addScientificMember(name: string, role: string): boolean {
+  const n = name.trim();
+  if (!n) return false;
+  if (scientificCommittee.some((o) => o.name.toLowerCase() === n.toLowerCase())) return false;
+  scientificCommittee = [...scientificCommittee, { name: n, role: role.trim() }];
+  saveToStorage();
+  return true;
+}
+
+export function addScientificMembers(entries: Organizer[]): number {
+  let count = 0;
+  entries.forEach((e) => {
+    const n = (e.name || "").trim();
+    if (!n) return;
+    if (scientificCommittee.some((o) => o.name.toLowerCase() === n.toLowerCase())) return;
+    scientificCommittee = [...scientificCommittee, { name: n, role: (e.role || "").trim() }];
+    count++;
+  });
+  if (count > 0) saveToStorage();
+  return count;
+}
+
+export function removeScientificMember(name: string): void {
+  scientificCommittee = scientificCommittee.filter((o) => o.name !== name);
+  saveToStorage();
+}
+
+export function clearScientificCommittee(): void {
+  scientificCommittee = [];
+  saveToStorage();
+}
+
 
 export function getArticles(): Article[] {
   return [...articles];
@@ -507,6 +549,7 @@ export function resetForNewProject(): void {
   rapporteurGroups = [];
   genSettings = {};
   organizers = [];
+  scientificCommittee = [];
   presentationTypes = [...DEFAULT_PRESENTATION_TYPES];
   try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
 }
@@ -1234,6 +1277,7 @@ export function exportBlob(): Record<string, unknown> {
     rapporteurGroups,
     genSettings,
     organizers,
+    scientificCommittee,
     presentationTypes,
     savedAt: Date.now(),
   };
@@ -1250,6 +1294,7 @@ export function loadFromBlob(blob: Record<string, unknown>): void {
   if (Array.isArray(blob.rapporteurGroups)) rapporteurGroups = blob.rapporteurGroups as string[];
   if (blob.genSettings && typeof blob.genSettings === "object") genSettings = blob.genSettings as Record<string, unknown>;
   if (Array.isArray(blob.organizers)) organizers = blob.organizers as Organizer[];
+  if (Array.isArray(blob.scientificCommittee)) scientificCommittee = blob.scientificCommittee as Organizer[];
   if (Array.isArray(blob.presentationTypes) && (blob.presentationTypes as string[]).length > 0)
     presentationTypes = blob.presentationTypes as string[];
   saveToStorage(); // also keep localStorage in sync
