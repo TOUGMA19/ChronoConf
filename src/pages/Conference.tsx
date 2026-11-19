@@ -258,9 +258,19 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
     () => (schedule ? buildBadgesFromSchedule(schedule, articles, { includeUnscheduled, organizers: organizersList }) : []),
     [schedule, articles, organizersList, includeUnscheduled],
   );
+  // Listes enregistrées (modérateurs, présidents, rapporteurs) : leurs membres reçoivent une attestation
+  // même s'ils ne sont rattachés à aucune communication.
   const recipientList = useMemo(
-    () => (schedule ? buildRecipientsFromSchedule(schedule, articles, { includeUnscheduled, organizers: organizersList }) : []),
-    [schedule, articles, organizersList, includeUnscheduled],
+    () => (schedule
+      ? buildRecipientsFromSchedule(schedule, articles, {
+          includeUnscheduled,
+          organizers: organizersList,
+          moderators: moderatorsList,
+          sessionChairs: chairsList,
+          rapporteurs: rapporteursList,
+        })
+      : []),
+    [schedule, articles, organizersList, moderatorsList, chairsList, rapporteursList, includeUnscheduled],
   );
 
   // Intervenants n'ayant pas encore vérifié leurs informations (à l'ouverture des fenêtres)
