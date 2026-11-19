@@ -12,12 +12,13 @@ import { ensureUnicodeFonts, fontFamilyFor, pdfSafeText } from "./pdfFont";
 // TYPES
 // ===========================================================================
 
-export type CertificateRole = "speaker" | "moderator" | "chair" | "participant" | "organizer" | "other";
+export type CertificateRole = "speaker" | "moderator" | "chair" | "rapporteur" | "participant" | "organizer" | "other";
 
 export const CERT_ROLE_LABEL: Record<CertificateRole, string> = {
   speaker: "Auteur / Présentateur",
   moderator: "Modérateur",
   chair: "Président de séance",
+  rapporteur: "Rapporteur",
   participant: "Participant",
   organizer: "Organisateur",
   other: "Autre",
@@ -271,6 +272,10 @@ export function buildRecipientsFromSchedule(
     // Modérateur / président : une attestation par personne (rôle transverse).
     if (a.moderator) upsert({ name: a.moderator, role: "moderator", affiliation: a.category });
     if (a.sessionChair) upsert({ name: a.sessionChair, role: "chair", affiliation: a.category });
+    // Rapporteur(s) de la séance (« Dr A et Dr B ») : une attestation par personne.
+    if (a.rapporteurs) {
+      splitAuthors(a.rapporteurs).forEach((n) => upsert({ name: n, role: "rapporteur", affiliation: a.category }));
+    }
   };
 
   for (const s of schedule.slots) {
@@ -287,14 +292,10 @@ export function buildRecipientsFromSchedule(
   }
   if (includeUnscheduled) getUnscheduledArticles(schedule, articles).forEach(addArticle);
 
-  // Organisateurs : ajoutés seulement si la personne n'est pas déjà destinataire
-  const known = new Set([...byKey.values()].map((r) => normalizeName(r.name)));
+  // Organisateurs : une attestation d'organisateur PAR PERSONNE, même si elle a déjà une attestation
+  // d'auteur, de modérateur… (la clé d'unicité contient le rôle ; seuls les doublons d'organisateur sont fusionnés).
   for (const o of organizers) {
-    const key = normalizeName(o.name);
-    if (key && !known.has(key)) {
-      known.add(key);
-      upsert({ name: o.name, role: "organizer", affiliation: o.role || undefined });
-    }
+    upsert({ name: o.name, role: "organizer", affiliation: o.role || undefined });
   }
 
   return [...byKey.values()].sort((x, y) => {
@@ -375,6 +376,7 @@ function blockTextFor(
       const verb = rec.role === "speaker" ? "a présenté une communication"
         : rec.role === "moderator" ? "a assuré la modération d'une session"
         : rec.role === "chair" ? "a présidé une session scientifique"
+        : rec.role === "rapporteur" ? "a assuré la fonction de rapporteur d'une session"
         : rec.role === "organizer" ? "a contribué à l'organisation"
         : rec.role === "other" ? "a contribué"
         : "a participé";
@@ -477,6 +479,33 @@ async function drawCertificatePage(
   }
 }
 
+const ROLE_FILE_SLUG: Record<CertificateRole, string> = {
+  speaker: "auteur",
+  moderator: "moderateur",
+  chair: "president",
+  rapporteur: "rapporteur",
+  participant: "participant",
+  organizer: "organisateur",
+  other: "autre",
+};
+
+/**
+ * Noms de fichiers « attestation-nom-prenom-role » (sans extension), uniques dans la liste.
+ * En cas de collision (même personne, même rôle, plusieurs communications) on ajoute le titre, puis un numéro.
+ */
+export function certificateFileNames(recipients: CertificateRecipient[]): string[] {
+  const used = new Set<string>();
+  return recipients.map((rec, i) => {
+    const base = `attestation-${slugify(rec.name) || "destinataire"}-${ROLE_FILE_SLUG[rec.role] ?? "autre"}`;
+    const titleSlug = rec.communicationTitle ? slugify(rec.communicationTitle).slice(0, 40).replace(/-+$/, "") : "";
+    let name = base;
+    if (used.has(name) && titleSlug) name = `${base}-${titleSlug}`;
+    if (used.has(name)) name = `${base}-${i + 1}`;
+    used.add(name);
+    return name;
+  });
+}
+
 function slugify(name: string): string {
   return name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
     .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -509,8 +538,37 @@ export async function exportCertificatesPDF(
     await drawCertificatePage(doc, recipients[i], opts, tpl, layout);
   }
 
+  // Une seule personne : le fichier porte son nom, ex. « attestation-awa-traore-organisateur.pdf »
+  if (recipients.length === 1) {
+    doc.save(`${certificateFileNames(recipients)[0]}.pdf`);
+    return;
+  }
   const safeName = slugify(opts.conferenceName) || "attestations";
   doc.save(`attestations-${safeName}.pdf`);
+}
+
+/**
+ * Un PDF PAR PERSONNE, rangés dans un zip, chacun nommé « attestation-nom-prenom-role.pdf ».
+ */
+export async function exportCertificatesPDFZip(
+  recipients: CertificateRecipient[],
+  opts: CertificateOptions,
+): Promise<void> {
+  if (recipients.length === 0) throw new Error("Aucun destinataire");
+  recipients = recipients.map(cleanRecipient);
+  opts = { ...opts, conferenceName: latexToUnicode(opts.conferenceName) };
+  await ensureUnicodeFonts();
+  const tpl = getCertificateTemplate(opts.templateId);
+  const layout = opts.layout ?? defaultLayout();
+  const names = certificateFileNames(recipients);
+  const zip = new JSZip();
+  for (let i = 0; i < recipients.length; i++) {
+    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    await drawCertificatePage(doc, recipients[i], opts, tpl, layout);
+    zip.file(`${names[i]}.pdf`, doc.output("arraybuffer"));
+  }
+  const blob = await zip.generateAsync({ type: "blob" });
+  saveAs(blob, `attestations-${slugify(opts.conferenceName) || "conference"}.zip`);
 }
 
 // ===========================================================================
@@ -592,6 +650,7 @@ export async function exportCertificatesPPTX(
   const outZip = new JSZip();
   // Suivi des noms de fichiers déjà utilisés pour éviter toute collision.
   const usedNames = new Set<string>();
+  const fileNames = certificateFileNames(recipients);
 
   for (let recIdx = 0; recIdx < recipients.length; recIdx++) {
     const rec = recipients[recIdx];
@@ -685,15 +744,8 @@ export async function exportCertificatesPPTX(
 
     const out = zip.generate({ type: "uint8array", compression: "DEFLATE" });
 
-    // Nom de fichier : nom + titre de communication (ou index si collision).
-    const baseSlug = slugify(rec.name) || "destinataire";
-    const titleSlug = rec.communicationTitle ? slugify(rec.communicationTitle) : "";
-    let fileName = titleSlug
-      ? `attestation-${baseSlug}-${titleSlug}.pptx`
-      : `attestation-${baseSlug}.pptx`;
-    if (usedNames.has(fileName)) {
-      fileName = `attestation-${baseSlug}-${recIdx + 1}${titleSlug ? "-" + titleSlug : ""}.pptx`;
-    }
+    // Nom de fichier : attestation-nom-prenom-role.pptx (titre / numéro ajoutés seulement en cas de collision).
+    const fileName = `${fileNames[recIdx]}.pptx`;
     usedNames.add(fileName);
     outZip.file(fileName, out);
   }
