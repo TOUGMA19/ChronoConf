@@ -224,6 +224,13 @@ export interface BuildRecipientsOptions {
   includeUnscheduled?: boolean;
   /** Organisateurs à ajouter (dédoublonnés par nom normalisé). */
   organizers?: { name: string; role?: string }[];
+  /**
+   * Personnes enregistrées dans les listes « Modérateurs », « Présidents » et « Rapporteurs » :
+   * chacune reçoit son attestation même si elle n'est rattachée à aucune communication.
+   */
+  moderators?: string[];
+  sessionChairs?: string[];
+  rapporteurs?: string[];
 }
 
 /** Clé d'identité d'un destinataire (nom normalisé + rôle + titre). */
@@ -244,7 +251,7 @@ export function buildRecipientsFromSchedule(
   articles: Article[],
   options: BuildRecipientsOptions = {},
 ): CertificateRecipient[] {
-  const { includeUnscheduled = true, organizers = [] } = options;
+  const { includeUnscheduled = true, organizers = [], moderators = [], sessionChairs = [], rapporteurs = [] } = options;
   // LaTeX → texte Unicode lisible (titres, noms accentués…)
   articles = cleanArticles(articles);
   schedule = cleanSchedule(schedule);
@@ -291,6 +298,14 @@ export function buildRecipientsFromSchedule(
     }
   }
   if (includeUnscheduled) getUnscheduledArticles(schedule, articles).forEach(addArticle);
+
+  // Listes enregistrées (modérateurs, présidents, rapporteurs) : une attestation par personne et par rôle,
+  // y compris pour celles qui ne sont rattachées à aucune communication.
+  const fromList = (names: string[], role: CertificateRole) =>
+    names.forEach((n) => splitAuthors(latexToUnicode(n)).forEach((one) => upsert({ name: one, role })));
+  fromList(moderators, "moderator");
+  fromList(sessionChairs, "chair");
+  fromList(rapporteurs, "rapporteur");
 
   // Organisateurs : une attestation d'organisateur PAR PERSONNE, même si elle a déjà une attestation
   // d'auteur, de modérateur… (la clé d'unicité contient le rôle ; seuls les doublons d'organisateur sont fusionnés).
