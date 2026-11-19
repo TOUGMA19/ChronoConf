@@ -62,3 +62,17 @@ describe("attestations : personnes enregistrées dans les listes", () => {
     expect(r.filter((x) => x.role === "chair").map((x) => x.name).sort()).toEqual(["Pr Ilboudo", "Pr Nouveau"]);
   });
 });
+
+describe("comité scientifique", () => {
+  it("chaque membre reçoit son attestation, en plus de ses autres rôles", () => {
+    const r = buildRecipientsFromSchedule(schedule, arts, {
+      includeUnscheduled: false,
+      scientificCommittee: [{ name: "Awa Traoré", role: "Présidente du comité scientifique" }, { name: "Pr Nouveau" }],
+    });
+    const sci = r.filter((x) => x.role === "scientific");
+    expect(sci.map((x) => x.name).sort()).toEqual(["Awa Traoré", "Pr Nouveau"]);
+    expect(sci.find((x) => x.name === "Awa Traoré")?.affiliation).toBe("Présidente du comité scientifique");
+    expect(r.filter((x) => x.name === "Awa Traoré").map((x) => x.role)).toContain("speaker");
+    expect(certificateFileNames(sci)).toContain("attestation-pr-nouveau-comite-scientifique");
+  });
+});
