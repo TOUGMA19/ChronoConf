@@ -14,7 +14,7 @@ import {
   getSessionChairs, addSessionChair, addSessionChairs, removeSessionChair, clearSessionChairs,
   getRapporteurs, addRapporteur, addRapporteurs, removeRapporteur, clearRapporteurs,
   getRapporteurGroups, addRapporteurGroup, removeRapporteurGroup,
-  getPresentationTypes, getOrganizers, Article, SpecialSlot, DayHours, loadFromBlob, exportBlob, getGenSettings, setGenSettings,
+  getPresentationTypes, getOrganizers, getScientificCommittee, Article, SpecialSlot, DayHours, loadFromBlob, exportBlob, getGenSettings, setGenSettings,
   resetForNewProject, setArticlesDuration, DurationScope,
 } from "@/lib/conference";
 import { getUnscheduledArticles } from "@/lib/people";
@@ -146,6 +146,7 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
   const [chairsDialogOpen, setChairsDialogOpen] = useState(false);
   const [rapporteursDialogOpen, setRapporteursDialogOpen] = useState(false);
   const [organizersDialogOpen, setOrganizersDialogOpen] = useState(false);
+  const [committeeDialogOpen, setCommitteeDialogOpen] = useState(false);
   const [verifyDialogOpen, setVerifyDialogOpen] = useState(false);
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
   const [typesDialogOpen, setTypesDialogOpen] = useState(false);
@@ -251,12 +252,13 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
   const rapporteurGroupsList = useMemo(() => getRapporteurGroups(), [refreshKey]);
   const [groupDraft, setGroupDraft] = useState<string[]>([]);
   const organizersList = useMemo(() => getOrganizers(), [refreshKey]);
+  const committeeList = useMemo(() => getScientificCommittee(), [refreshKey]);
   const unscheduled = useMemo(() => getUnscheduledArticles(schedule, articles), [schedule, articles]);
   const unscheduledIds = useMemo(() => new Set(unscheduled.map((a) => a.id)), [unscheduled]);
   // Listes mémorisées : référence stable tant que les données ne changent pas.
   const badgeList = useMemo(
-    () => (schedule ? buildBadgesFromSchedule(schedule, articles, { includeUnscheduled, organizers: organizersList }) : []),
-    [schedule, articles, organizersList, includeUnscheduled],
+    () => (schedule ? buildBadgesFromSchedule(schedule, articles, { includeUnscheduled, organizers: organizersList, scientificCommittee: committeeList }) : []),
+    [schedule, articles, organizersList, committeeList, includeUnscheduled],
   );
   // Listes enregistrées (modérateurs, présidents, rapporteurs) : leurs membres reçoivent une attestation
   // même s'ils ne sont rattachés à aucune communication.
@@ -265,12 +267,13 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
       ? buildRecipientsFromSchedule(schedule, articles, {
           includeUnscheduled,
           organizers: organizersList,
+          scientificCommittee: committeeList,
           moderators: moderatorsList,
           sessionChairs: chairsList,
           rapporteurs: rapporteursList,
         })
       : []),
-    [schedule, articles, organizersList, moderatorsList, chairsList, rapporteursList, includeUnscheduled],
+    [schedule, articles, organizersList, committeeList, moderatorsList, chairsList, rapporteursList, includeUnscheduled],
   );
 
   // Intervenants n'ayant pas encore vérifié leurs informations (à l'ouverture des fenêtres)
@@ -478,6 +481,9 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
             </Button>
             <Button variant="outline" onClick={() => setOrganizersDialogOpen(true)} className="gap-2">
               <Users className="h-4 w-4" /><span className="hidden sm:inline">Organisateurs ({organizersList.length})</span>
+            </Button>
+            <Button variant="outline" onClick={() => setCommitteeDialogOpen(true)} className="gap-2">
+              <GraduationCap className="h-4 w-4" /><span className="hidden sm:inline">Comité scientifique ({committeeList.length})</span>
             </Button>
             <Button variant="outline" onClick={() => setVerifyDialogOpen(true)} className="gap-2">
               <ShieldCheck className="h-4 w-4" /><span className="hidden sm:inline">Vérification</span>
@@ -766,6 +772,7 @@ const Conference = ({ projectSlug, projectName, userId, userEmail, onBack }: Con
       />
       <PresentationTypesDialog open={typesDialogOpen} onOpenChange={setTypesDialogOpen} onChanged={() => setRefreshKey((k) => k + 1)} />
       <OrganizersDialog open={organizersDialogOpen} onOpenChange={setOrganizersDialogOpen} onChanged={() => setRefreshKey((k) => k + 1)} />
+      <OrganizersDialog variant="committee" open={committeeDialogOpen} onOpenChange={setCommitteeDialogOpen} onChanged={() => setRefreshKey((k) => k + 1)} />
       <VerificationConfigDialog open={verifyDialogOpen} onOpenChange={setVerifyDialogOpen} conferenceId={projectSlug} onSynced={() => { setRefreshKey((k) => k + 1); cloudSave(true); }} />
       <PublishScheduleDialog open={publishDialogOpen} onOpenChange={setPublishDialogOpen} conferenceId={projectSlug} schedule={schedule} articles={articles} organizers={organizersList} />
 
